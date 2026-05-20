@@ -21,7 +21,19 @@ fn test_crc_invalid_message() {
     let mut msg = [0x8Du8, 0x48, 0x40, 0xD6, 0x20, 0x2C, 0xC3,
                    0x71, 0xC3, 0x2C, 0xE0, 0x57, 0x60, 0x98];
     msg[0] ^= 0x01;
+    // Must be non-zero (basic corruption detection)
     assert_ne!(modes_checksum(&msg, 112), 0x000000);
+}
+
+// Cross-validate non-zero CRC against the C reference value.
+// The C reference (crctests / crc.c) returns 0x587178 for this
+// specific 1-bit error at position 0.
+#[test]
+fn test_crc_corrupted_exact_value() {
+    let mut msg = [0x8Du8, 0x48, 0x40, 0xD6, 0x20, 0x2C, 0xC3,
+                   0x71, 0xC3, 0x2C, 0xE0, 0x57, 0x60, 0x98];
+    msg[0] ^= 0x01;
+    assert_eq!(modes_checksum(&msg, 112), 0x587178);
 }
 
 // All-zero message (CRC of zero should be zero)

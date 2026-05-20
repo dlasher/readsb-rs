@@ -1,11 +1,19 @@
 const CRC_POLYNOMIAL: u32 = 0xFFF409;
 
-/// Compute the 24-bit CRC of a Mode S message.
+/// Compute the 24-bit CRC syndrome of a Mode S message.
 /// Matches `modesChecksum()` in crc.c exactly.
+///
+/// This is NOT a general CRC-24 over all bytes.  It processes
+/// the first (n-3) data bytes through a bit-serial shift register,
+/// then XORs the final 3 bytes (the embedded CRC/parity field).
+/// The combined result is 0 for a valid message.
 pub fn modes_checksum(msg: &[u8], bitlen: usize) -> u32 {
-    let mut crc: u32 = 0;
     let nbytes = (bitlen + 7) / 8;
-    for i in 0..nbytes {
+    let databytes = if nbytes > 3 { nbytes - 3 } else { 0 };
+
+    // Process data bytes through the CRC shift register
+    let mut crc: u32 = 0;
+    for i in 0..databytes {
         let byte = msg[i];
         for bitidx in 0..8 {
             let bitpos = 7 - bitidx;
@@ -17,5 +25,13 @@ pub fn modes_checksum(msg: &[u8], bitlen: usize) -> u32 {
             }
         }
     }
+
+    // XOR in the last 3 bytes (the embedded CRC/parity field)
+    if nbytes >= 3 {
+        crc ^= (msg[nbytes - 3] as u32) << 16
+             | (msg[nbytes - 2] as u32) << 8
+             | msg[nbytes - 1] as u32;
+    }
+
     crc & 0x00FFFFFF
 }
