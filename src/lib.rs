@@ -1,3 +1,4 @@
+pub mod sdr;
 pub mod types;
 pub mod crc;
 pub mod cpr;

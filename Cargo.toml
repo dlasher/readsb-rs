@@ -6,7 +6,9 @@ license = "GPL-3.0-or-later"
 description = "Mode-S/ADSB/TIS message decoder — Rust rewrite"
 
 [dependencies]
+async-trait = "0.1"
 bitflags = "2"
+tokio = { version = "1", features = ["fs", "io-util"] }
 
 [dev-dependencies]
 criterion = "0.5"
