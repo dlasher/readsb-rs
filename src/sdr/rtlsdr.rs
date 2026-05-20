@@ -25,6 +25,7 @@ pub const RTLTCP_SET_DIRECT_SAMP: u8 = 0x09;
 pub const RTLTCP_SET_OFFSET_TUNING: u8 = 0x0A;
 pub const RTLTCP_SET_BIAS_TEE: u8 = 0x0E;
 
+#[allow(dead_code)]
 pub struct RtlSdrDevice {
     device_index: u32,
     freq_hz: u32,
@@ -57,16 +58,13 @@ impl RtlSdrDevice {
         }
     }
 
-    pub fn set_direct_samp(&mut self, mode: u8) {
-        // TODO: implement
+    pub fn set_direct_samp(&mut self, _mode: u8) {
     }
 
-    pub fn set_offset_tune(&mut self, enable: bool) {
-        // TODO: implement
+    pub fn set_offset_tune(&mut self, _enable: bool) {
     }
 
-    pub fn set_bias_tee(&mut self, enable: bool) {
-        // TODO: implement
+    pub fn set_bias_tee(&mut self, _enable: bool) {
     }
 }
 

@@ -1,5 +1,6 @@
+use std::sync::Arc;
 use crate::types::*;
-use super::{Aircraft, AircraftRegistry, TRACK_EXPIRE};
+use super::{AircraftRegistry};
 
 pub struct Tracker {
     pub registry: AircraftRegistry,
@@ -20,16 +21,12 @@ impl Tracker {
         }
     }
 
-    pub fn update_from_message(&mut self, msg: &ModesMessage, now: i64) {
-        // Get aircraft by address
+    pub fn update_from_message(&self, msg: &ModesMessage, now: i64) {
         let addr = msg.addr;
-        
-        // Create with addrtype Unknown
         let aircraft = self.registry.get_or_create(addr, now, AddrType::Unknown);
 
-        // Update aircraft state from decoded fields
         let mut a = aircraft.write().unwrap();
-        
+
         if msg.baro_alt_valid {
             a.baro_alt = msg.baro_alt;
         }
@@ -39,7 +36,7 @@ impl Tracker {
         }
 
         if msg.track_valid {
-            a.track = msg.gs;  // Using gs as track placeholder
+            a.track = msg.gs;
         }
 
         if msg.baro_rate_valid {

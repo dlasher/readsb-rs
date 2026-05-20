@@ -22,4 +22,5 @@ criterion = "0.5"
 
 [[bench]]
 name = "crc_bench"
+path = "benches/crc_bench.rs"
 harness = false

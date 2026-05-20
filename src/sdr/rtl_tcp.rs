@@ -18,6 +18,7 @@ pub const RTLTCP_SET_BIAS_TEE: u8 = 0x0E;
 
 /// RTL-TCP response status codes
 const RTLTCP_CMD_SUCCESS: u8 = 0x01;
+#[allow(dead_code)]
 const RTLTCP_CMD_ERROR: u8 = 0xFF;
 
 /// RTL-TCP client for remote RTL-SDR devices
