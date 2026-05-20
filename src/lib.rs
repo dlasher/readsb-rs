@@ -5,3 +5,6 @@ pub mod cpr;
 pub mod demod;
 pub mod modes;
 pub mod tracking;
+pub mod net;
+pub mod output;
+pub mod stats;
