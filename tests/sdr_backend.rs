@@ -6,27 +6,26 @@ fn start_mock_rtl_tcp_server(port: u16) -> std::thread::JoinHandle<()> {
         let listener = std::net::TcpListener::bind(format!("127.0.0.1:{}", port)).unwrap();
         let (mut stream, _) = listener.accept().unwrap();
 
-        // Handshake: client sends 0x00, we respond with 4-byte response
+        // RTL-TCP protocol: server immediately sends dongle info (12 bytes)
+        // magic[4] + tuner_type[4] + tuner_gain_count[4]
         use std::io::{Read, Write};
-        let mut buf = [0u8; 1];
-        stream.read_exact(&mut buf).unwrap();
-        // Response: magic (0x00), version (0x01), writable (0x00), tuner (0x01)
-        stream.write_all(&[0x00, 0x01, 0x00, 0x01]).unwrap();
+        stream.write_all(b"RTL0").unwrap();
+        // tuner_type = 5, tuner_gain_count = 29 (big-endian u32)
+        stream.write_all(&5u32.to_be_bytes()).unwrap();
+        stream.write_all(&29u32.to_be_bytes()).unwrap();
 
-        // Command loop
+        // Command loop: client sends 5-byte commands (1 cmd + 4 param BE)
         loop {
             let mut cmd_buf = [0u8; 5];
             if stream.read_exact(&mut cmd_buf).is_err() {
                 break;
             }
-            let cmd = cmd_buf[0];
+            let _cmd = cmd_buf[0];
             let _param = u32::from_be_bytes([cmd_buf[1], cmd_buf[2], cmd_buf[3], cmd_buf[4]]);
 
-            // Echo response: 0x01 = success, then 3 bytes padding
-            if matches!(cmd, 0x01..=0x0A | 0x0E) {
-                stream.write_all(&[0x01, 0x00, 0x00, 0x00]).unwrap();
-            } else {
-                stream.write_all(&[0xFF, 0x00, 0x00, 0x00]).unwrap();
+            // Echo back: RTL-TCP server echoes the command bytes
+            if let Err(_) = stream.write_all(&cmd_buf) {
+                break;
             }
         }
     })

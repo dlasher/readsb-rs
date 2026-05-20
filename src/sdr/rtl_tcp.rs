@@ -17,9 +17,17 @@ pub const RTLTCP_SET_OFFSET_TUNING: u8 = 0x0A;
 pub const RTLTCP_SET_BIAS_TEE: u8 = 0x0E;
 
 /// RTL-TCP response status codes
-const RTLTCP_CMD_SUCCESS: u8 = 0x01;
 #[allow(dead_code)]
-const RTLTCP_CMD_ERROR: u8 = 0xFF;
+const RTLTCP_CMD_SUCCESS: u8 = 0x01;
+
+/// Dongle info response from server
+#[repr(C)]
+#[repr(packed)]
+pub struct DongleInfo {
+    pub magic: [u8; 4],
+    pub tuner_type: u32,
+    pub tuner_gain_count: u32,
+}
 
 /// RTL-TCP client for remote RTL-SDR devices
 pub struct RtlTcpClient {
@@ -45,33 +53,80 @@ impl RtlTcpClient {
         }
     }
 
-    /// Write a command and read response
-    async fn write_command(&mut self, cmd: u8, param: u32) -> io::Result<u8> {
+    /// Connect to RTL-TCP server and read dongle info (NO handshake byte)
+    async fn connect(&mut self) -> io::Result<()> {
+        let max_retries = 3;
+        let retry_delay = Duration::from_secs(5);
+
+        for _attempt in 0..max_retries {
+            match TcpStream::connect((self.host.as_str(), self.port)).await {
+                Ok(mut stream) => {
+                    // Server immediately sends dongle_info (8 bytes: magic + tuner_type + gain_count)
+                    let mut info_buf = [0u8; 12];
+                    match stream.read_exact(&mut info_buf).await {
+                        Ok(_) => {
+                            let info: DongleInfo = unsafe { std::mem::transmute(info_buf) };
+                            if info.magic != [b'R', b'T', b'L', b'0'] {
+                                return Err(io::Error::new(io::ErrorKind::InvalidData, "Invalid dongle magic"));
+                            }
+                            self.stream = Some(stream);
+                            self.connected = true;
+                            // Configure the server with small delays
+                            self.send_command(RTLTCP_SET_FREQ, self.freq_hz).await?;
+                            tokio::time::sleep(Duration::from_millis(10)).await;
+                            self.send_command(RTLTCP_SET_SAMPLE_RATE, self.sample_rate).await?;
+                            tokio::time::sleep(Duration::from_millis(10)).await;
+                            // Convert gain to tenths of dB (e.g., 49.6 -> 496)
+                            let gain_tenths = (self.gain_db * 10.0) as i32;
+                            self.send_command(RTLTCP_SET_GAIN_MODE, 1).await?; // Manual gain mode
+                            tokio::time::sleep(Duration::from_millis(10)).await;
+                            self.send_command(RTLTCP_SET_GAIN, gain_tenths as u32).await?;
+                            tokio::time::sleep(Duration::from_millis(10)).await;
+                            return Ok(());
+                        }
+                        Err(e) => {
+                            return Err(e);
+                        }
+                    }
+                }
+                Err(_) => {
+                    tokio::time::sleep(retry_delay).await;
+                }
+            }
+        }
+        
+        Err(io::Error::new(io::ErrorKind::ConnectionRefused, 
+            "Failed to connect to RTL-TCP server"))
+    }
+
+    /// Send a command - RTL-TCP echoes the command back, no status byte to check
+    async fn send_command(&mut self, cmd: u8, param: u32) -> io::Result<()> {
         if let Some(ref mut stream) = self.stream {
             // Write command byte
             stream.write_all(&[cmd]).await?;
             // Write 4-byte parameter (big-endian)
             stream.write_all(&param.to_be_bytes()).await?;
-            // Read 4-byte response
-            let mut response = [0u8; 4];
-            stream.read_exact(&mut response).await?;
-            Ok(response[0])
+            // RTL-TCP echoes back, we don't check response
+            // Just drain the 4-byte response to keep stream in sync
+            let mut _response = [0u8; 4];
+            let _ = stream.read_exact(&mut _response).await;
+            Ok(())
         } else {
             Err(io::Error::new(io::ErrorKind::NotConnected, "RTL-TCP not connected"))
         }
     }
 
-    /// Update sample rate
+    /// Update sample rate and reconfigure server
     pub fn set_sample_rate(&mut self, rate: u32) {
         self.sample_rate = rate;
     }
 
-    /// Update frequency
+    /// Update frequency and reconfigure server
     pub fn set_freq(&mut self, freq: u32) {
         self.freq_hz = freq;
     }
 
-    /// Update gain
+    /// Update gain and reconfigure server
     pub fn set_gain(&mut self, gain: f32) {
         self.gain_db = gain;
     }
@@ -92,65 +147,7 @@ impl RtlTcpClient {
 #[async_trait]
 impl SdrDevice for RtlTcpClient {
     async fn open(&mut self) -> io::Result<()> {
-        let max_retries = 3;
-        let retry_delay = Duration::from_secs(5);
-
-        for _attempt in 0..max_retries {
-            match TcpStream::connect((self.host.as_str(), self.port)).await {
-                Ok(mut stream) => {
-                    // Send handshake: 0x00 byte
-                    stream.write_all(&[0x00]).await?;
-                    
-                    // Read 4-byte response
-                    let mut response = [0u8; 4];
-                    stream.read_exact(&mut response).await?;
-                    
-                    // Check handshake success (response[0] should be 0x00)
-                    if response[0] == 0x00 {
-                        self.stream = Some(stream);
-                        self.connected = true;
-                        // Negotiate sample rate after connection
-                        match self.write_command(RTLTCP_SET_SAMPLE_RATE, self.sample_rate).await {
-                            Ok(RTLTCP_CMD_SUCCESS) => {},
-                            Ok(_) => {},
-                            Err(e) => {
-                                self.connected = false;
-                                return Err(e);
-                            }
-                        }
-                        match self.write_command(RTLTCP_SET_FREQ, self.freq_hz).await {
-                            Ok(RTLTCP_CMD_SUCCESS) => {},
-                            Ok(_) => {},
-                            Err(e) => {
-                                self.connected = false;
-                                return Err(e);
-                            }
-                        }
-                        // Convert gain to tenths of dB (e.g., 49.6 -> 496)
-                        let gain_tenths = (self.gain_db * 10.0) as i32;
-                        match self.write_command(RTLTCP_SET_GAIN, gain_tenths as u32).await {
-                            Ok(RTLTCP_CMD_SUCCESS) => {},
-                            Ok(_) => {},
-                            Err(e) => {
-                                self.connected = false;
-                                return Err(e);
-                            }
-                        }
-                        return Ok(());
-                    }
-                    
-                    // Handshake failed, close and retry
-                    drop(stream);
-                    tokio::time::sleep(retry_delay).await;
-                }
-                Err(_) => {
-                    tokio::time::sleep(retry_delay).await;
-                }
-            }
-        }
-        
-        Err(io::Error::new(io::ErrorKind::ConnectionRefused, 
-            "Failed to connect to RTL-TCP server"))
+        self.connect().await
     }
 
     async fn close(&mut self) -> io::Result<()> {
@@ -161,30 +158,19 @@ impl SdrDevice for RtlTcpClient {
 
     async fn set_freq(&mut self, freq_hz: u32) -> io::Result<()> {
         self.set_freq(freq_hz);
-        match self.write_command(RTLTCP_SET_FREQ, freq_hz).await {
-            Ok(RTLTCP_CMD_SUCCESS) => Ok(()),
-            Ok(_) => Err(io::Error::new(io::ErrorKind::Other, "RTL-TCP command failed")),
-            Err(e) => Err(e),
-        }
+        self.send_command(RTLTCP_SET_FREQ, freq_hz).await
     }
 
     async fn set_gain(&mut self, gain_db: f32) -> io::Result<()> {
         self.set_gain(gain_db);
         let gain_tenths = (gain_db * 10.0) as i32;
-        match self.write_command(RTLTCP_SET_GAIN, gain_tenths as u32).await {
-            Ok(RTLTCP_CMD_SUCCESS) => Ok(()),
-            Ok(_) => Err(io::Error::new(io::ErrorKind::Other, "RTL-TCP command failed")),
-            Err(e) => Err(e),
-        }
+        self.send_command(RTLTCP_SET_GAIN_MODE, 1).await?; // Manual gain mode
+        self.send_command(RTLTCP_SET_GAIN, gain_tenths as u32).await
     }
 
     async fn set_sample_rate(&mut self, rate_hz: u32) -> io::Result<()> {
         self.set_sample_rate(rate_hz);
-        match self.write_command(RTLTCP_SET_SAMPLE_RATE, rate_hz).await {
-            Ok(RTLTCP_CMD_SUCCESS) => Ok(()),
-            Ok(_) => Err(io::Error::new(io::ErrorKind::Other, "RTL-TCP command failed")),
-            Err(e) => Err(e),
-        }
+        self.send_command(RTLTCP_SET_SAMPLE_RATE, rate_hz).await
     }
 
     async fn read_samples(&mut self, buf: &mut [u8]) -> io::Result<usize> {

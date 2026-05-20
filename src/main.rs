@@ -21,9 +21,9 @@ async fn main() {
     let crc_engine = Arc::new(CrcFixEngine::new(112));
 
     let (mut net_server, _net_rx) = NetworkServer::new(&[
-        &config.net_ri_port,
-        &config.net_bo_port,
-        &config.net_sbs_port,
+        &format!("{}:{}", config.net_bind_address.as_deref().unwrap_or("0.0.0.0"), config.net_ri_port),
+        &format!("{}:{}", config.net_bind_address.as_deref().unwrap_or("0.0.0.0"), config.net_bo_port),
+        &format!("{}:{}", config.net_bind_address.as_deref().unwrap_or("0.0.0.0"), config.net_sbs_port),
     ]);
 
     let mut sdr = SdrManager::new();
