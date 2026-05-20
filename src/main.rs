@@ -1,0 +1,107 @@
+use readsb::config::ReadsbConfig;
+use readsb::tracking::Tracker;
+use readsb::crc::CrcFixEngine;
+use readsb::sdr::{SdrManager, SdrType};
+use readsb::net::NetworkServer;
+use std::sync::Arc;
+use tokio::signal;
+use tracing::{info, warn};
+use tracing_subscriber::EnvFilter;
+
+#[tokio::main]
+async fn main() {
+    tracing_subscriber::fmt()
+        .with_env_filter(EnvFilter::from_default_env())
+        .init();
+
+    let config = ReadsbConfig::from_cli();
+    info!("Starting readsb-rs with config");
+
+    let tracker = Arc::new(Tracker::new());
+    let crc_engine = Arc::new(CrcFixEngine::new(112));
+
+    let (mut net_server, _net_rx) = NetworkServer::new(&[
+        &config.net_ri_port,
+        &config.net_bo_port,
+        &config.net_sbs_port,
+    ]);
+
+    let mut sdr = SdrManager::new();
+    let sdr_type = match config.ifile {
+        Some(ref path) => SdrType::IFile(path.clone()),
+        None => {
+            if let Some(ref dev) = config.device {
+                if dev.starts_with("rtl_tcp:") {
+                    let parts: Vec<&str> = dev.split(':').collect();
+                    if parts.len() >= 3 {
+                        SdrType::RtlTcp(parts[1].to_string(), parts[2].parse().unwrap_or(1234))
+                    } else {
+                        SdrType::RtlSdr(0)
+                    }
+                } else {
+                    SdrType::RtlSdr(0)
+                }
+            } else {
+                SdrType::RtlSdr(0)
+            }
+        }
+    };
+
+    if let Err(e) = sdr.open(sdr_type).await {
+        warn!("Failed to open SDR device: {}", e);
+        return;
+    }
+
+    let mut sample_buffer = vec![0u8; 2 * 2400000];
+    let mut magnitude_buffer = vec![0u16; 2400000];
+
+    let net_handle = tokio::spawn(async move {
+        if let Err(e) = net_server.run().await {
+            warn!("Network server error: {}", e);
+        }
+    });
+
+    info!("Entering main processing loop");
+
+    loop {
+        tokio::select! {
+            result = sdr.read_samples(&mut sample_buffer) => {
+                match result {
+                    Ok(n) if n > 0 => {
+                        let count = readsb::demod::convert_to_magnitude(
+                            &sample_buffer[..n],
+                            readsb::demod::InputFormat::SC16Q11,
+                            &mut magnitude_buffer,
+                        );
+                        let messages = readsb::demod::demodulate2400(
+                            &magnitude_buffer, count, 32768,
+                        );
+                        let now = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_millis() as i64;
+                        for raw_msg in &messages {
+                            if let Some(result) = readsb::modes::parse_modes_message(
+                                raw_msg, 112, &crc_engine,
+                            ) {
+                                tracker.update_from_message(&result.message, now);
+                            }
+                        }
+                    }
+                    Ok(_) => {}
+                    Err(e) => {
+                        warn!("SDR read error: {}", e);
+                        break;
+                    }
+                }
+            }
+            _ = signal::ctrl_c() => {
+                info!("Shutting down...");
+                break;
+            }
+        }
+    }
+
+    net_handle.abort();
+    info!("Shutdown complete");
+}

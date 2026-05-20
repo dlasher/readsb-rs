@@ -1,3 +1,4 @@
+pub mod config;
 pub mod sdr;
 pub mod types;
 pub mod crc;
