@@ -16,9 +16,9 @@ pub const RTLTCP_SET_DIRECT_SAMP: u8 = 0x09;
 pub const RTLTCP_SET_OFFSET_TUNING: u8 = 0x0A;
 pub const RTLTCP_SET_BIAS_TEE: u8 = 0x0E;
 
-/// RTL-TCP response status codes
+/// RTL-TCP response status codes (not used - protocol is fire-and-forget)
 #[allow(dead_code)]
-const RTLTCP_CMD_SUCCESS: u8 = 0x01;
+const RTLTCP_RESP_SUCCESS: u8 = 0x01;
 
 /// Dongle info response from server
 #[repr(C)]
@@ -71,17 +71,12 @@ impl RtlTcpClient {
                             }
                             self.stream = Some(stream);
                             self.connected = true;
-                            // Configure the server with small delays
+                            // Configure the server
                             self.send_command(RTLTCP_SET_FREQ, self.freq_hz).await?;
-                            tokio::time::sleep(Duration::from_millis(10)).await;
                             self.send_command(RTLTCP_SET_SAMPLE_RATE, self.sample_rate).await?;
-                            tokio::time::sleep(Duration::from_millis(10)).await;
-                            // Convert gain to tenths of dB (e.g., 49.6 -> 496)
                             let gain_tenths = (self.gain_db * 10.0) as i32;
-                            self.send_command(RTLTCP_SET_GAIN_MODE, 1).await?; // Manual gain mode
-                            tokio::time::sleep(Duration::from_millis(10)).await;
+                            self.send_command(RTLTCP_SET_GAIN_MODE, 1).await?;
                             self.send_command(RTLTCP_SET_GAIN, gain_tenths as u32).await?;
-                            tokio::time::sleep(Duration::from_millis(10)).await;
                             return Ok(());
                         }
                         Err(e) => {
@@ -99,17 +94,11 @@ impl RtlTcpClient {
             "Failed to connect to RTL-TCP server"))
     }
 
-    /// Send a command - RTL-TCP echoes the command back, no status byte to check
+    /// Send a command - RTL-TCP protocol is fire-and-forget, no response
     async fn send_command(&mut self, cmd: u8, param: u32) -> io::Result<()> {
         if let Some(ref mut stream) = self.stream {
-            // Write command byte
             stream.write_all(&[cmd]).await?;
-            // Write 4-byte parameter (big-endian)
             stream.write_all(&param.to_be_bytes()).await?;
-            // RTL-TCP echoes back, we don't check response
-            // Just drain the 4-byte response to keep stream in sync
-            let mut _response = [0u8; 4];
-            let _ = stream.read_exact(&mut _response).await;
             Ok(())
         } else {
             Err(io::Error::new(io::ErrorKind::NotConnected, "RTL-TCP not connected"))
