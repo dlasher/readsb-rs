@@ -44,7 +44,7 @@ fn check_preamble(mag: &[u16], threshold: u32) -> bool {
 fn decode_message(mag: &[u16], mag_len: usize, bitlen: usize) -> Option<Vec<u8>> {
     let sample_count = bitlen * 2;
     if mag_len < sample_count { return None; }
-    let mut msg = vec![0u8; (bitlen + 7) / 8];
+    let mut msg = vec![0u8; bitlen.div_ceil(8)];
     let mut phase: i32 = 0;
     for bit in 0..bitlen {
         let sample_idx = MODES_PREAMBLE_SAMPLES + bit * 2;

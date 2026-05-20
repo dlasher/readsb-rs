@@ -8,8 +8,8 @@ const CRC_POLYNOMIAL: u32 = 0xFFF409;
 /// then XORs the final 3 bytes (the embedded CRC/parity field).
 /// The combined result is 0 for a valid message.
 pub fn modes_checksum(msg: &[u8], bitlen: usize) -> u32 {
-    let nbytes = (bitlen + 7) / 8;
-    let databytes = if nbytes > 3 { nbytes - 3 } else { 0 };
+    let nbytes = bitlen.div_ceil(8);
+    let databytes = nbytes.saturating_sub(3);
 
     // Process data bytes through the CRC shift register
     let mut crc: u32 = 0;

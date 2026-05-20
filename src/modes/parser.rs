@@ -70,7 +70,7 @@ fn decode_df17_18(mm: &mut ModesMessage) {
     match mm.metype {
         1..=4 => decode_surface_position(mm),
         5..=8 => decode_airborne_position(mm),
-        9..=18 | 19 => decode_airborne_velocity(mm),
+        9..=19 => decode_airborne_velocity(mm),
         20 => decode_target_state(mm),
         21 | 28 | 31 => decode_aircraft_status(mm),
         _ => {}

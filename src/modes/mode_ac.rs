@@ -33,5 +33,5 @@ pub fn mode_a_to_mode_c(mode_a: u32) -> i32 {
     let five_hundreds = if a4 { 4 } else { 0 } + if a2 { 2 } else { 0 } + if a1 { 1 } else { 0 };
     let one_hundreds = if c4 { 4 } else { 0 } + if c2 { 2 } else { 0 } + if c1 { 1 } else { 0 };
 
-    ((five_hundreds * 5 + one_hundreds) as i32 - 10) * 100
+    ((five_hundreds * 5 + one_hundreds) - 10) * 100
 }

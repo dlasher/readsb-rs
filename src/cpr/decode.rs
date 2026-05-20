@@ -130,7 +130,7 @@ pub fn decode_cpr_airborne(
     if rlat1 >= 270.0 { rlat1 -= 360.0; }
 
     // Check latitude range
-    if rlat0 < -90.0 || rlat0 > 90.0 || rlat1 < -90.0 || rlat1 > 90.0 {
+    if !(-90.0..=90.0).contains(&rlat0) || !(-90.0..=90.0).contains(&rlat1) {
         return None;
     }
 
@@ -210,7 +210,7 @@ pub fn decode_cpr_surface(
     }
 
     // Check latitude range
-    if rlat0 < -90.0 || rlat0 > 90.0 || rlat1 < -90.0 || rlat1 > 90.0 {
+    if !(-90.0..=90.0).contains(&rlat0) || !(-90.0..=90.0).contains(&rlat1) {
         return None;
     }
 
@@ -273,7 +273,7 @@ pub fn decode_cpr_relative(
     if rlat >= 270.0 { rlat -= 360.0; }
 
     // Check latitude range
-    if rlat < -90.0 || rlat > 90.0 {
+    if !(-90.0..=90.0).contains(&rlat) {
         return None;
     }
 

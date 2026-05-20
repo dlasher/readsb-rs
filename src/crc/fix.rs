@@ -24,7 +24,7 @@ pub struct CrcFixEngine {
 impl CrcFixEngine {
     pub fn new(max_bitlen: usize) -> Self {
         let mut table = HashMap::new();
-        let nbytes = (max_bitlen + 7) / 8;
+        let nbytes = max_bitlen.div_ceil(8);
 
         // Single bit errors
         for bit_pos in 0..max_bitlen {
@@ -55,16 +55,11 @@ impl CrcFixEngine {
                 let bit_idx2 = 7 - (bit2 % 8);
                 error_msg[byte2] |= 1 << bit_idx2;
                 let syndrome = super::engine::modes_checksum(&error_msg, max_bitlen);
-                if !table.contains_key(&syndrome) {
-                    table.insert(
-                        syndrome,
-                        ErrorInfo {
+                table.entry(syndrome).or_insert(ErrorInfo {
                             syndrome,
                             errors: 2,
                             bits: [bit1 as i8, bit2 as i8],
-                        },
-                    );
-                }
+                        });
             }
         }
 
