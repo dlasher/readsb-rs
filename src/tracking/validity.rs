@@ -45,11 +45,10 @@ impl DataValidity {
         now < self.updated + expire
     }
 
-    pub fn check_stale(&mut self, now: i64) {
+    pub fn update_stale(&mut self, now: i64) {
         if self.source == DataSource::Invalid {
             return;
         }
-        // Data is stale when age >= TRACK_STALE
         self.stale = now >= self.updated + TRACK_STALE;
     }
 
@@ -63,6 +62,7 @@ impl DataValidity {
 
     pub fn invalidate(&mut self) {
         self.source = DataSource::Invalid;
+        self.stale = false;
     }
 }
 
