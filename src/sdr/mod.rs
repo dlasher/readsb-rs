@@ -1,8 +1,10 @@
 pub mod traits;
 pub mod ifile;
 pub mod rtlsdr;
+pub mod rtl_tcp;
 pub mod manager;
 pub use traits::*;
 pub use ifile::*;
 pub use rtlsdr::*;
+pub use rtl_tcp::*;
 pub use manager::*;

@@ -2,6 +2,7 @@ use std::io;
 use super::traits::SdrDevice;
 use super::ifile::IFileDevice;
 use super::rtlsdr::RtlSdrDevice;
+use super::rtl_tcp::RtlTcpClient;
 
 pub enum SdrType {
     IFile(String),
@@ -18,11 +19,11 @@ impl SdrManager {
         SdrManager { device: None }
     }
 
-    pub fn create_device(sdr_type: SdrType) -> Box<dyn SdrDevice> {
+pub fn create_device(sdr_type: SdrType) -> Box<dyn SdrDevice> {
         match sdr_type {
             SdrType::IFile(path) => Box::new(IFileDevice::new(path)),
             SdrType::RtlSdr(idx) => Box::new(RtlSdrDevice::new(idx)),
-            SdrType::RtlTcp(host, port) => Box::new(RtlSdrDevice::with_rtl_tcp(host, port)),
+            SdrType::RtlTcp(host, port) => Box::new(RtlTcpClient::new(host, port)),
         }
     }
 
