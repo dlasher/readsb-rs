@@ -261,6 +261,36 @@ fn test_beast_standard_format() {
 }
 
 #[test]
+fn test_beast_record_roundtrip() {
+    use readsb::net::protocols::beast::{encode_record, decode_record, BeastFrame};
+
+    let frame = BeastFrame {
+        timestamp: 1716300000000,
+        frame_type: 0x33,
+        payload: vec![0x8D, 0x48, 0x40, 0xD6, 0x20, 0x2C, 0xC3, 0x71, 0xC3, 0x2C, 0xE0, 0x57, 0x60, 0x98],
+        rssi: 0xff,
+    };
+
+    let encoded = encode_record(&frame);
+    assert_eq!(encoded.len(), 9 + frame.payload.len());
+
+    let decoded = decode_record(&encoded);
+    assert!(decoded.is_some(), "Must decode back");
+    let decoded = decoded.unwrap();
+    assert_eq!(decoded.timestamp, frame.timestamp);
+    assert_eq!(decoded.frame_type, frame.frame_type);
+    assert_eq!(decoded.payload, frame.payload);
+    assert_eq!(decoded.rssi, 0xff);
+}
+
+#[test]
+fn test_decode_record_too_short() {
+    use readsb::net::protocols::beast::decode_record;
+    assert!(decode_record(&[]).is_none());
+    assert!(decode_record(&[0u8; 8]).is_none());
+}
+
+#[test]
 fn test_parse_beast_frame_basic() {
     use readsb::net::protocols::beast;
     let timestamp: i64 = 1716300000000;

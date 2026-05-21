@@ -6,6 +6,32 @@ pub struct BeastFrame {
     pub rssi: u8,
 }
 
+/// Encode a BeastFrame as a timestamped record for file storage.
+/// Format: 6B ts | 1B flags | 1B type | 1B payload_len | payload
+pub fn encode_record(frame: &BeastFrame) -> Vec<u8> {
+    let mut out = Vec::with_capacity(9 + frame.payload.len());
+    let ts_bytes = frame.timestamp.to_be_bytes();
+    out.extend_from_slice(&ts_bytes[2..]);
+    out.push(0x00);
+    out.push(frame.frame_type);
+    out.push(frame.payload.len() as u8);
+    out.extend_from_slice(&frame.payload);
+    out
+}
+
+/// Decode a timestamped record back into a BeastFrame.
+/// RSSI is not stored in records — always returns 0xff.
+pub fn decode_record(data: &[u8]) -> Option<BeastFrame> {
+    if data.len() < 9 { return None; }
+    let ts_bytes = &data[0..6];
+    let timestamp = i64::from_be_bytes([0, 0, ts_bytes[0], ts_bytes[1], ts_bytes[2], ts_bytes[3], ts_bytes[4], ts_bytes[5]]);
+    let frame_type = data[7];
+    let payload_len = data[8] as usize;
+    if data.len() < 9 + payload_len { return None; }
+    let payload = data[9..9 + payload_len].to_vec();
+    Some(BeastFrame { timestamp, frame_type, payload, rssi: 0xff })
+}
+
 /// Parse a single Beast frame from a buffer starting at offset 0.
 /// Format: 0x1a <type> <6B timestamp> <1B RSSI> <payload (byte-stuffed)>
 pub fn parse_beast_frame(data: &[u8]) -> Option<BeastFrame> {
