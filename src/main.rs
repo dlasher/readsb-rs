@@ -15,7 +15,7 @@ async fn main() {
         .init();
 
     let config = ReadsbConfig::from_cli();
-    info!("Starting readsb-rs with config");
+    info!("Starting readsb-rs v{}", env!("CARGO_PKG_VERSION"));
 
     let tracker = Arc::new(Tracker::new());
     let crc_engine = Arc::new(CrcFixEngine::new(112));
@@ -34,23 +34,33 @@ async fn main() {
                 if dev.starts_with("rtl_tcp:") {
                     let parts: Vec<&str> = dev.split(':').collect();
                     if parts.len() >= 3 {
-                        SdrType::RtlTcp(parts[1].to_string(), parts[2].parse().unwrap_or(1234))
+                        let host = parts[1].to_string();
+                        let port: u16 = parts[2].parse().unwrap_or(1234);
+                        info!("Using RTL-TCP: {}:{}", host, port);
+                        SdrType::RtlTcp(host, port)
                     } else {
+                        warn!("Invalid rtl_tcp format, expected rtl_tcp:host:port");
                         SdrType::RtlSdr(0)
                     }
                 } else {
-                    SdrType::RtlSdr(0)
+                    // Parse --device as a numeric device index
+                    let idx: u32 = dev.parse().unwrap_or(0);
+                    info!("Using RTL-SDR device index {}", idx);
+                    SdrType::RtlSdr(idx)
                 }
             } else {
+                info!("Using RTL-SDR device index 0 (default)");
                 SdrType::RtlSdr(0)
             }
         }
     };
 
+    info!("Opening SDR device...");
     if let Err(e) = sdr.open(sdr_type).await {
         warn!("Failed to open SDR device: {}", e);
         return;
     }
+    info!("SDR device opened successfully");
 
     let mut sample_buffer = vec![0u8; 2 * 2400000];
     let mut magnitude_buffer = vec![0u16; 2400000];
