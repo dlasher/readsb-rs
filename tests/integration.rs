@@ -101,6 +101,34 @@ fn test_stats_collected() {
     assert!(stats.distance_min > 1e30); // f64::MAX
 }
 
+/// D0: Synthetic fixture produces valid decoded messages via full pipeline.
+#[test]
+fn test_synthetic_fixture_pipeline() {
+    let data = std::fs::read("test_fixtures/synthetic_df17.iq")
+        .expect("Fixture file not found");
+    let mut mag = vec![0u16; data.len() / 2];
+    let count = readsb::demod::convert_to_magnitude(
+        &data, readsb::demod::InputFormat::SC16Q11, &mut mag,
+    );
+    assert!(count > 0, "Magnitude conversion should produce samples");
+
+    let messages = readsb::demod::demodulate2400(&mag, count, 32768);
+    assert!(!messages.is_empty(), "Should detect at least one preamble");
+
+    let crc = readsb::crc::CrcFixEngine::new(112);
+    let decoded: Vec<_> = messages.iter()
+        .filter_map(|msg| {
+            let msgbits = msg.len() * 8;
+            if msgbits != 56 && msgbits != 112 { return None; }
+            readsb::modes::parse_modes_message(msg, msgbits, &crc)
+        })
+        .collect();
+    assert!(!decoded.is_empty(), "Should decode at least one message");
+    assert_eq!(decoded[0].message.addr, 0x4840D6, "Expected ICAO 4840D6");
+    eprintln!("Pipeline OK: {} messages decoded, ICAO={:06X}",
+        decoded.len(), decoded[0].message.addr);
+}
+
 /// D4: SIGTERM causes clean exit. Currently aborts.
 #[test]
 fn test_graceful_shutdown() {

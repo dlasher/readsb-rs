@@ -22,7 +22,7 @@ impl RtlSdrDevice {
             device_index,
             freq_hz: 1090000000,
             gain_db: 49.6,
-            sample_rate: 2400000,
+            sample_rate: 2000000,
             handle: None,
         }
     }

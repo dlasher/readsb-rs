@@ -1,6 +1,10 @@
 /// Generate synthetic Mode-S burst as SC16Q11 I/Q samples.
 /// Creates a valid preamble at sample 0 + DF17 message
 /// "8D4840D6202CC371C32CE0576098" as Manchester-coded symbols.
+///
+/// The preamble pattern uses pulses at samples 0, 2, 7, 9 (2 MHz timing:
+/// 0, 1.0, 3.5, 4.5 microseconds) which matches the original dump1090
+/// relative-comparison preamble detection.
 fn main() {
     let msg_hex = "8D4840D6202CC371C32CE0576098";
     let msg: Vec<u8> = (0..msg_hex.len())
@@ -8,31 +12,26 @@ fn main() {
         .map(|i| u8::from_str_radix(&msg_hex[i..i+2], 16).unwrap())
         .collect();
 
-    // Mode-S preamble: pulses at sample positions 0, 2, 7, 9
-    // Each pulse is ~0.5us at 2.4MHz = ~1.2 samples = let's use 1 sample per pulse
-    // Preamble pattern (16 samples at 2.4MHz/bit = 2 samples per bit):
-    // 1 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0
-    // (pulses at positions 0, 2, 7, 9 in the 16-sample preamble)
-    // But this needs to be 0.5us pulse width. At 2.4MHz, one sample = 0.417us
-    // So 1 sample pulse ≈ 0.417us. Close enough for detection.
-
-    let _sample_rate = 2_400_000u32;
     let preamble_samples = 16;
     let bits = msg.len() * 8;
     let msg_samples = bits * 2; // 2 samples per Manchester symbol
 
-    let total_len = (preamble_samples + msg_samples) as usize;
+    let total_len = (preamble_samples + msg_samples + 1) as usize; // +1 guard sample for decoder window
     let mut iq = Vec::with_capacity(total_len * 4); // SC16Q11 = 4 bytes per sample
 
-    // Generate preamble: pulses at indices 0, 2, 7, 9 with quiet at 1, 5
+    // Strong pulse vs weak background for relative comparisons
+    let pulse_i = 30000i16;
+    let pulse_q = 10000i16;
+    let quiet_i = 2000i16;
+    let quiet_q = 500i16;
+
+    // Generate preamble: pulses at indices 0, 2, 7, 9 (the 4 ADS-B pulses at 0, 1.0, 3.5, 4.5 us)
+    // with quiet/gap at all other positions.
     for i in 0..preamble_samples {
-        let amplitude: f32 = match i {
-            0 | 2 | 7 | 9 => 0.7,  // Pulse
-            _ => 0.01,              // Quiet (but not zero to avoid I/Q DC)
+        let (i_val, q_val) = match i {
+            0 | 2 | 7 | 9 => (pulse_i, pulse_q),
+            _ => (quiet_i, quiet_q),
         };
-        // I/Q with small phase offset for realism
-        let i_val = (amplitude * 2047.0) as i16;
-        let q_val = (amplitude * 100.0) as i16;
         iq.extend_from_slice(&i_val.to_le_bytes());
         iq.extend_from_slice(&q_val.to_le_bytes());
     }
@@ -42,20 +41,21 @@ fn main() {
         for bit_idx in (0..8).rev() {
             let bit = (byte >> bit_idx) & 1;
             // Manchester: 1 = high-low, 0 = low-high
-            let (s1, s2) = if bit == 1 {
-                (0.8, 0.01)
+            let samples = if bit == 1 {
+                [(pulse_i, pulse_q), (quiet_i, quiet_q)]
             } else {
-                (0.01, 0.8)
+                [(quiet_i, quiet_q), (pulse_i, pulse_q)]
             };
-            // Two samples per symbol
-            for &sample_amp in &[s1, s2] {
-                let i_val = (sample_amp * 2047.0) as i16;
-                let q_val = (sample_amp * 100.0) as i16;
+            for &(i_val, q_val) in &samples {
                 iq.extend_from_slice(&i_val.to_le_bytes());
                 iq.extend_from_slice(&q_val.to_le_bytes());
             }
         }
     }
+
+    // Add one guard sample for the decoder's 3-sample window at the last bit
+    iq.extend_from_slice(&quiet_i.to_le_bytes());
+    iq.extend_from_slice(&quiet_q.to_le_bytes());
 
     let path = std::path::Path::new("test_fixtures/synthetic_df17.iq");
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();

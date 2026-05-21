@@ -1,5 +1,33 @@
 # Changelog
 
+## [0.3.0] - 2026-05-20
+
+### Fixed
+- **Sample rate mismatch**: decoder assumed 2 MHz but RTL-TCP/USB drivers set
+  2.4 MHz, causing preamble timing to be off by 20% (16 samples = 6.67 µs vs
+  required 8 µs). Changed defaults to 2000000.
+- **Preamble detection used broken absolute threshold comparison**: replaced
+  `mag[0] > t && mag[4] > t && ...` with the correct relative-comparison
+  algorithm from original dump1090 (checks `mag[0] > mag[1]`, `mag[2] > mag[3]`,
+  gap-vs-peak energy ratios, etc.)
+- **Decode message phase default returned `false`**: the phase cycles through
+  0,6,12,18,24 but the match arm `_ => false` meant only 1 in 5 bits was
+  decoded. Changed to `_ => slice_phase0(slice) > 0` matching original C code.
+- **Demod loop off-by-one**: `while i + 240 < mag_len` prevented processing
+  messages at the exact buffer boundary. Changed `<` to `<=`.
+- **EOF not handled**: `read_samples` returning `Ok(0)` (file EOF / TCP close)
+  caused the main loop to spin forever. Added explicit `Ok(0) => break`.
+- **`InputFormat` not `Copy`**: move-in-loop error when matching on `input_format`
+  in the main processing loop. Added `derive(Clone, Copy)`.
+- **Synthetic fixture had wrong amplitudes**: used `amplitude * 2047` producing
+  magnitudes below any detection threshold. Switched to full i16 range
+  (pulse=30000, quiet=2000) with guard sample for decoder window.
+
+### Changed
+- Default sample rate from 2400000 to 2000000 in both `RtlSdrDevice` and
+  `RtlTcpClient`
+- Sample rate in fixture generator from 2400000 to 2000000
+
 ## [0.2.0] - 2026-05-20
 
 ### Added

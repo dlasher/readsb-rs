@@ -26,6 +26,21 @@ async fn main() {
         &format!("{}:{}", config.net_bind_address.as_deref().unwrap_or("0.0.0.0"), config.net_sbs_port),
     ]);
 
+    // Determine input format: RTL-TCP sends U8, RTL-SDR USB sends U8, files may vary
+    let input_format = match config.iformat.as_deref() {
+        Some("CU8") => readsb::demod::InputFormat::U8,
+        Some("SC16") => readsb::demod::InputFormat::SC16Q11,
+        Some("CF32") => readsb::demod::InputFormat::F32,
+        _ => {
+            // Default: if using RTL-TCP, use U8; otherwise SC16Q11 for other sources
+            if config.device.as_deref().map_or(false, |d| d.starts_with("rtl_tcp:")) {
+                readsb::demod::InputFormat::U8
+            } else {
+                readsb::demod::InputFormat::SC16Q11
+            }
+        }
+    };
+
     let mut sdr = SdrManager::new();
     let sdr_type = match config.ifile {
         Some(ref path) => SdrType::IFile(path.clone()),
@@ -73,18 +88,22 @@ async fn main() {
 
     info!("Entering main processing loop");
 
+    let mut total_messages: u64 = 0;
+    let mut iter_count: u64 = 0;
+
     loop {
         tokio::select! {
             result = sdr.read_samples(&mut sample_buffer) => {
                 match result {
                     Ok(n) if n > 0 => {
+                        iter_count += 1;
                         let count = readsb::demod::convert_to_magnitude(
                             &sample_buffer[..n],
-                            readsb::demod::InputFormat::SC16Q11,
+                            input_format,
                             &mut magnitude_buffer,
                         );
                         let messages = readsb::demod::demodulate2400(
-                            &magnitude_buffer, count, 32768,
+                            &magnitude_buffer, count, 0,
                         );
                         let now = std::time::SystemTime::now()
                             .duration_since(std::time::UNIX_EPOCH)
@@ -95,8 +114,19 @@ async fn main() {
                                 raw_msg, 112, &crc_engine,
                             ) {
                                 tracker.update_from_message(&result.message, now);
+                                total_messages += 1;
                             }
                         }
+                        if iter_count % 100 == 0 {
+                            let preambles = messages.len();
+                            let len = tracker.registry.len();
+                            println!("[iter {} bytes={} mag={} preambles={} decodes={} aircraft={}]",
+                                iter_count, n, count, preambles, total_messages, len);
+                        }
+                    }
+                    Ok(0) => {
+                        info!("End of data stream");
+                        break;
                     }
                     Ok(_) => {}
                     Err(e) => {

@@ -1,3 +1,4 @@
+#[derive(Clone, Copy)]
 pub enum InputFormat {
     SC16Q11,
     SC16Q11M,
