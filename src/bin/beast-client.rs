@@ -1,4 +1,5 @@
 use clap::{Parser, Subcommand};
+use std::io::Write;
 
 #[derive(Parser)]
 #[command(name = "beast-client", version = "0.7.0")]
@@ -67,7 +68,25 @@ fn main() {
             eprintln!("compare not implemented: {ref1} vs {:?} (live={host}:{port})", ref2);
         }
         Commands::Hex { host, port } => {
-            eprintln!("hex not implemented: {host}:{port}");
+            let addr = format!("{}:{}", host, port);
+            match std::net::TcpStream::connect(&addr) {
+                Ok(mut stream) => {
+                    loop {
+                        match readsb::net::protocols::beast::read_beast_frames(&mut stream, 100) {
+                            Ok(frames) => {
+                                if frames.is_empty() { break; }
+                                for frame in &frames {
+                                    let hex = readsb::net::protocols::hex::encode_hex_output(&frame.payload);
+                                    print!("{}", std::str::from_utf8(&hex).unwrap_or(""));
+                                }
+                                std::io::stdout().flush().ok();
+                            }
+                            Err(e) => { eprintln!("Read error: {e}"); break; }
+                        }
+                    }
+                }
+                Err(e) => { eprintln!("Connection failed: {e}"); std::process::exit(1); }
+            }
         }
         Commands::Decode { host, port } => {
             eprintln!("decode not implemented: {host}:{port}");
