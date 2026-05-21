@@ -2,12 +2,46 @@ use async_trait::async_trait;
 use std::io;
 use super::traits::SdrDevice;
 
-#[allow(dead_code)]
+/// Safe Send wrapper for rtl_sdr_rs::RtlSdr.
+/// The inner type is not automatically Send because the Tuner trait
+/// doesn't require Send, but all implementations (NoTuner, R82xx)
+/// contain only Send-safe integer fields. Device is backed by
+/// rusb::DeviceHandle which is documented as Send.
+struct SdrHandle(rtl_sdr_rs::RtlSdr);
+unsafe impl Send for SdrHandle {}
+unsafe impl Sync for SdrHandle {}
+
 pub struct RtlSdrDevice {
     device_index: u32,
     freq_hz: u32,
     gain_db: f32,
     sample_rate: u32,
+    handle: Option<SdrHandle>,
+}
+
+impl SdrHandle {
+    fn inner(&self) -> &rtl_sdr_rs::RtlSdr {
+        &self.0
+    }
+
+    fn inner_mut(&mut self) -> &mut rtl_sdr_rs::RtlSdr {
+        &mut self.0
+    }
+
+    fn open(device_index: u32, freq_hz: u32, sample_rate: u32, gain_db: f32) -> io::Result<Self> {
+        let mut handle = rtl_sdr_rs::RtlSdr::open_with_index(device_index as usize)
+            .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
+        handle.set_sample_rate(sample_rate)
+            .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
+        handle.set_center_freq(freq_hz)
+            .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
+        let gain_tenths = (gain_db * 10.0) as i32;
+        handle.set_tuner_gain(rtl_sdr_rs::TunerGain::Manual(gain_tenths))
+            .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
+        handle.reset_buffer()
+            .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
+        Ok(SdrHandle(handle))
+    }
 }
 
 impl RtlSdrDevice {
@@ -17,6 +51,7 @@ impl RtlSdrDevice {
             freq_hz: 1090000000,
             gain_db: 49.6,
             sample_rate: 2400000,
+            handle: None,
         }
     }
 }
@@ -24,31 +59,49 @@ impl RtlSdrDevice {
 #[async_trait]
 impl SdrDevice for RtlSdrDevice {
     async fn open(&mut self) -> io::Result<()> {
-        // USB mode - placeholder for FFI bindings
+        let handle = SdrHandle::open(self.device_index, self.freq_hz, self.sample_rate, self.gain_db)?;
+        self.handle = Some(handle);
         Ok(())
     }
 
     async fn close(&mut self) -> io::Result<()> {
+        self.handle.take();
         Ok(())
     }
 
     async fn set_freq(&mut self, freq_hz: u32) -> io::Result<()> {
         self.freq_hz = freq_hz;
+        if let Some(ref mut handle) = self.handle {
+            handle.inner_mut().set_center_freq(freq_hz)
+                .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
+        }
         Ok(())
     }
 
     async fn set_gain(&mut self, gain_db: f32) -> io::Result<()> {
         self.gain_db = gain_db;
+        if let Some(ref mut handle) = self.handle {
+            let gain_tenths = (gain_db * 10.0) as i32;
+            handle.inner_mut().set_tuner_gain(rtl_sdr_rs::TunerGain::Manual(gain_tenths))
+                .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
+        }
         Ok(())
     }
 
     async fn set_sample_rate(&mut self, rate_hz: u32) -> io::Result<()> {
         self.sample_rate = rate_hz;
+        if let Some(ref mut handle) = self.handle {
+            handle.inner_mut().set_sample_rate(rate_hz)
+                .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
+        }
         Ok(())
     }
 
-    async fn read_samples(&mut self, _buf: &mut [u8]) -> io::Result<usize> {
-        Err(io::Error::new(io::ErrorKind::Unsupported, "USB sample reading not implemented"))
+    async fn read_samples(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        let handle = self.handle.as_ref()
+            .ok_or_else(|| io::Error::new(io::ErrorKind::NotConnected, "device not opened"))?;
+        handle.inner().read_sync(buf)
+            .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))
     }
 
     fn name(&self) -> &str {

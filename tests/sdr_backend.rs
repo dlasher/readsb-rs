@@ -45,17 +45,19 @@ async fn test_mock_device_read_samples() {
 }
 
 #[tokio::test]
-async fn test_rtlsdr_read_no_panic() {
+async fn test_rtlsdr_usb_open_no_panic() {
     let mut manager = SdrManager::new();
+    // open() should not panic regardless of whether a device is present
     let result = manager.open(SdrType::RtlSdr(0)).await;
-    assert!(result.is_ok(), "RtlSdr device should open");
-
-    let mut buf = vec![0u8; 1024];
-    let read_result = manager.read_samples(&mut buf).await;
-    // Should return an error (no real USB device), not panic
-    assert!(read_result.is_err(), "read_samples without HW should return Err, not panic");
-    let err = read_result.unwrap_err();
-    assert_eq!(err.kind(), std::io::ErrorKind::Unsupported);
+    // If a device is present, this should succeed.
+    // If no device, this should return an Err (not panic).
+    // Both outcomes are valid.
+    if result.is_ok() {
+        let mut buf = vec![0u8; 1024];
+        let read_result = manager.read_samples(&mut buf).await;
+        // read should not panic either — must return Ok or Err
+        let _ = read_result;
+    }
 }
 
 #[tokio::test]
@@ -71,11 +73,10 @@ async fn sdr_manager_creates_ifile() {
 #[tokio::test]
 async fn sdr_manager_creates_rtlsdr() {
     let mut manager = SdrManager::new();
-    
-    // Should succeed with RtlSdr device (even if open() is unimplemented for now)
-    let result = manager.open(SdrType::RtlSdr(0)).await;
-    
-    assert!(result.is_ok(), "RtlSdr device should be created");
+    // With FFI wired, open() tries to open the USB device.
+    // May succeed (device attached) or fail (no device) — neither panics.
+    let _ = manager.open(SdrType::RtlSdr(0)).await;
+    // Test passes if no panic occurred
 }
 
 #[tokio::test]
