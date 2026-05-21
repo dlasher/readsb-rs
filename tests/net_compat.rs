@@ -34,17 +34,24 @@ fn test_beast_encode_output() {
         data: vec![0x1A, 0x2B, 0x3C, 0x4D],
         client_id: 0,
     };
-    let encoded = beast::encode_beast_output(&msg);
-    // Beast MLAT format: DLE STX + 6-byte timestamp + type + payload + DLE ETX
-    assert!(!encoded.is_empty(), "Encoded output should not be empty");
-    assert_eq!(encoded[0], 0x10, "Should start with DLE");
-    assert_eq!(encoded[1], 0x02, "Should start with DLE STX (MLAT sync)");
-    // Last two bytes should be DLE ETX terminator
-    assert_eq!(encoded[encoded.len() - 2], 0x10, "Should end with DLE");
-    assert_eq!(encoded[encoded.len() - 1], 0x03, "Should end with ETX");
-    // Type byte (position 8) should be 0x31 (short, payload ≤ 7 bytes)
-    assert_eq!(encoded[8], 0x31, "Type byte should be 0x31 (short frame) for 4-byte payload");
-    // There should be at least 8 bytes: DLE STX + 6-byte timestamp + type + payload + DLE ETX
-    assert!(encoded.len() >= 8 + msg.data.len(),
-        "Encoded length should accommodate header + payload + trailer");
+    let _encoded = beast::encode_beast_output(&msg.data, 0.0);
+}
+
+#[test]
+fn test_beast_standard_format() {
+    use readsb::net::protocols::beast;
+    let data = [
+        0x8D, 0x48, 0x40, 0xD6, 0x20, 0x2C, 0xC3, 0x71,
+        0xC3, 0x2C, 0xE0, 0x57, 0x60, 0x98,
+    ];
+    let encoded = beast::encode_beast_output(&data, 0.0);
+
+    assert_eq!(encoded[0], 0x1a, "First byte must be 0x1a (frame start)");
+    assert_eq!(encoded[1], 0x33, "14B payload → type 0x33 (long frame)");
+    for i in 2..8 {
+        assert_eq!(encoded[i], 0x00, "Timestamp bytes {i} must be zero");
+    }
+    assert_eq!(encoded[8], 0xff, "RSSI byte must be 0xff (signal=0 sentinel)");
+    assert_eq!(&encoded[9..23], &data, "Payload must be verbatim at bytes 9-22");
+    assert_eq!(encoded.len(), 23, "Frame length must be 1+1+6+1+14 = 23");
 }

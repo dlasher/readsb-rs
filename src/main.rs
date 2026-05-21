@@ -292,10 +292,7 @@ async fn main() {
                                 println!("{}", line);
                             }
 
-                            let beast_data = encode_beast_output(&DecodedMessage {
-                                data: raw_msg.clone(),
-                                client_id: 0,
-                            });
+                            let beast_data = encode_beast_output(raw_msg, *signal);
                             let _ = message_tx.send(DecodedMessage {
                                 data: beast_data,
                                 client_id: 0,

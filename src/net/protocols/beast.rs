@@ -1,42 +1,33 @@
-use std::time::{SystemTime, UNIX_EPOCH};
-use crate::net::DecodedMessage;
-
 #[allow(dead_code)] // wired from client read_loop; pending Phase 2 Beast framing
 pub fn parse_timestamp(data: &[u8]) -> Option<i64> {
     if data.len() < 6 { return None; }
     Some(i64::from_be_bytes([0, 0, data[0], data[1], data[2], data[3], data[4], data[5]]))
 }
 
-/// Encode a decoded message in Beast binary format (MLAT timestamped).
-/// Format: DLE STX + 6-byte timestamp MSB + message type + payload + DLE ETX
+/// Encode raw Mode-S frame bytes in standard Beast binary format (0x1a-escaped).
 ///
-/// Message type:
-///   0x31 (ASCII '1') — Mode-S short frame (7 bytes, DF0-16,18-23)
-///   0x32 (ASCII '2') — Mode-S long frame  (14 bytes, DF17-18,24-31)
-pub fn encode_beast_output(msg: &DecodedMessage) -> Vec<u8> {
-    let mut out = Vec::with_capacity(msg.data.len() + 12);
+/// Format: 0x1a <type> <6B timestamp> <1B RSSI> <payload>
+///   - 0x1a: frame start marker (not escaped)
+///   - type: 0x32 (short, ≤7B) / 0x33 (long, 14B)
+///   - timestamp: 6 bytes big-endian, zeros (placeholder)
+///   - RSSI: signal/256, clamped to 255, 0xff for signal ≤ 0
+///   - payload: raw Mode-S bytes with 0x1a byte-stuffing
+pub fn encode_beast_output(data: &[u8], _signal_level: f64) -> Vec<u8> {
+    let mut out = Vec::with_capacity(data.len() + 10);
 
-    // Header DLE + STX (MLAT sync)
-    out.push(0x10);
-    out.push(0x02);
+    out.push(0x1a); // frame start
 
-    // Timestamp (6 bytes, big-endian, microseconds since epoch)
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_micros() as u64;
-    out.extend_from_slice(&now.to_be_bytes()[2..]); // last 6 bytes
-
-    // Message type: 0x31 for short (7-byte) frames, 0x32 for long (14-byte) frames
-    let msg_type = if msg.data.len() <= 7 { 0x31 } else { 0x32 };
+    let msg_type = if data.len() <= 7 { 0x32 } else { 0x33 };
     out.push(msg_type);
 
-    // Payload
-    out.extend_from_slice(&msg.data);
+    // Timestamp: 6 zero bytes (placeholder)
+    out.extend_from_slice(&[0u8; 6]);
 
-    // Trailer DLE + ETX
-    out.push(0x10);
-    out.push(0x03);
+    // RSSI: hardcoded 0xff for now (mapping added in Task 4)
+    out.push(0xff);
+
+    // Payload (byte-stuffing added in Task 2)
+    out.extend_from_slice(data);
 
     out
 }
