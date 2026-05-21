@@ -38,6 +38,32 @@ fn test_beast_encode_output() {
 }
 
 #[test]
+fn test_sbs_encode_callsign() {
+    use readsb::net::protocols::sbs;
+    use readsb::tracking::Aircraft;
+    use readsb::types::{AddrType, DataSource};
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    let now_ms = SystemTime::now()
+        .duration_since(UNIX_EPOCH).unwrap_or_default()
+        .as_millis() as i64;
+
+    let mut aircraft = Aircraft::new(0xA43EA2, AddrType::AdsbIcao, now_ms);
+    aircraft.callsign = "BAW123".to_string();
+    aircraft.callsign_valid.update(DataSource::Adsb, now_ms);
+
+    let encoded = sbs::encode_sbs_aircraft(&aircraft, now_ms);
+    let output = String::from_utf8(encoded).unwrap();
+    assert!(output.contains("MSG,1,1,1,A43EA2,1,"), "MSG,1 must contain ICAO A43EA2");
+    assert!(output.contains(",BAW123,"), "MSG,1 must contain callsign BAW123");
+
+    let stale = now_ms + 120_000;
+    let encoded = sbs::encode_sbs_aircraft(&aircraft, stale);
+    let output = String::from_utf8(encoded).unwrap();
+    assert!(!output.contains("MSG,1"), "MSG,1 must NOT be emitted when callsign is stale");
+}
+
+#[test]
 fn test_sbs_encode_altitude() {
     use readsb::net::protocols::sbs;
     use readsb::tracking::Aircraft;
