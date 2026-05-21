@@ -30,3 +30,7 @@ harness = false
 name = "demod_bench"
 path = "benches/demod_bench.rs"
 harness = false
+
+[[bin]]
+name = "beast-client"
+path = "src/bin/beast-client.rs"
