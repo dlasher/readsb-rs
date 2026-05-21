@@ -133,11 +133,11 @@ async fn main() {
                 }
                 tracker.remove_stale(now);
                 if iter_count == 1 || iter_count % 100 == 0 {
-                    let preambles = messages.len();
+                    let candidates = messages.len();
                     let len = tracker.registry.len();
                     let tag = if iter_count == 1 { "FIRST" } else { "iter" };
-                    println!("[{} {} bytes={} mag={} preambles={} decodes={} aircraft={}]",
-                        tag, iter_count, n, count, preambles, total_messages, len);
+                    println!("[{} {} bytes={} mag={} candidates={} decodes={} aircraft={}]",
+                        tag, iter_count, n, count, candidates, total_messages, len);
                 }
             }
             Ok(0) => {
