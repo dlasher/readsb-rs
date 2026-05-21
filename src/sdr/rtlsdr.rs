@@ -77,10 +77,25 @@ impl SdrDevice for RtlSdrDevice {
     }
 
     async fn read_samples(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        let h = self.handle.as_ref()
-            .ok_or_else(|| io::Error::new(io::ErrorKind::NotConnected, "device not opened"))?;
-        h.read_sync(buf)
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))
+        // read_sync blocks the calling thread (libusb bulk_transfer, Duration::ZERO).
+        // Run it on a blocking thread so tokio can handle ctrl-c and network I/O.
+        let dev_addr = match self.handle.as_ref() {
+            Some(h) => h as *const rtl_sdr_rs::RtlSdr as usize,
+            None => return Err(io::Error::new(io::ErrorKind::NotConnected, "device not opened")),
+        };
+        let buf_addr = buf.as_mut_ptr() as usize;
+        let buf_len = buf.len();
+        // SAFETY: dev_addr points into self.handle which lives as long as &mut self.
+        // buf_addr is valid until this async fn returns. spawn_blocking completes
+        // before either is invalidated.
+        tokio::task::spawn_blocking(move || {
+            let dev = unsafe { &*(dev_addr as *const rtl_sdr_rs::RtlSdr) };
+            let buf = unsafe { std::slice::from_raw_parts_mut(buf_addr as *mut u8, buf_len) };
+            dev.read_sync(buf)
+                .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))
+        })
+        .await
+        .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?
     }
 
     fn name(&self) -> &str {

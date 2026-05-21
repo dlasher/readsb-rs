@@ -4,6 +4,7 @@ use readsb::crc::CrcFixEngine;
 use readsb::sdr::{SdrManager, SdrType};
 use readsb::net::NetworkServer;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::signal;
 use tracing::{info, warn};
 use tracing_subscriber::EnvFilter;
@@ -88,56 +89,61 @@ async fn main() {
 
     info!("Entering main processing loop");
 
+    // Use a shutdown flag instead of tokio::select! so that a blocking
+    // read_sync (which may be running on a blocking thread) is not
+    // cancelled mid-read, which would invalidate buffer pointers.
+    let shutdown = Arc::new(AtomicBool::new(false));
+    let shutdown_signals = shutdown.clone();
+    tokio::spawn(async move {
+        signal::ctrl_c().await.ok();
+        info!("Shutting down...");
+        shutdown_signals.store(true, Ordering::Relaxed);
+    });
+
     let mut total_messages: u64 = 0;
     let mut iter_count: u64 = 0;
 
-    loop {
-        tokio::select! {
-            result = sdr.read_samples(&mut sample_buffer) => {
-                match result {
-                    Ok(n) if n > 0 => {
-                        iter_count += 1;
-                        let count = readsb::demod::convert_to_magnitude(
-                            &sample_buffer[..n],
-                            input_format,
-                            &mut magnitude_buffer,
-                        );
-                        let messages = readsb::demod::demodulate2400(
-                            &magnitude_buffer, count, 0,
-                        );
-                        let now = std::time::SystemTime::now()
-                            .duration_since(std::time::UNIX_EPOCH)
-                            .unwrap_or_default()
-                            .as_millis() as i64;
-                        for raw_msg in &messages {
-                            if let Some(result) = readsb::modes::parse_modes_message(
-                                raw_msg, 112, &crc_engine,
-                            ) {
-                                tracker.update_from_message(&result.message, now);
-                                total_messages += 1;
-                            }
-                        }
-                        if iter_count == 1 || iter_count % 100 == 0 {
-                            let preambles = messages.len();
-                            let len = tracker.registry.len();
-                            let tag = if iter_count == 1 { "FIRST" } else { "iter" };
-                            println!("[{} {} bytes={} mag={} preambles={} decodes={} aircraft={}]",
-                                tag, iter_count, n, count, preambles, total_messages, len);
-                        }
-                    }
-                    Ok(0) => {
-                        info!("End of data stream");
-                        break;
-                    }
-                    Ok(_) => {}
-                    Err(e) => {
-                        warn!("SDR read error: {}", e);
-                        break;
+    while !shutdown.load(Ordering::Relaxed) {
+        let result = sdr.read_samples(&mut sample_buffer).await;
+        if shutdown.load(Ordering::Relaxed) { break; }
+        match result {
+            Ok(n) if n > 0 => {
+                iter_count += 1;
+                let count = readsb::demod::convert_to_magnitude(
+                    &sample_buffer[..n],
+                    input_format,
+                    &mut magnitude_buffer,
+                );
+                let messages = readsb::demod::demodulate2400(
+                    &magnitude_buffer, count, 0,
+                );
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_millis() as i64;
+                for raw_msg in &messages {
+                    if let Some(result) = readsb::modes::parse_modes_message(
+                        raw_msg, 112, &crc_engine,
+                    ) {
+                        tracker.update_from_message(&result.message, now);
+                        total_messages += 1;
                     }
                 }
+                if iter_count == 1 || iter_count % 100 == 0 {
+                    let preambles = messages.len();
+                    let len = tracker.registry.len();
+                    let tag = if iter_count == 1 { "FIRST" } else { "iter" };
+                    println!("[{} {} bytes={} mag={} preambles={} decodes={} aircraft={}]",
+                        tag, iter_count, n, count, preambles, total_messages, len);
+                }
             }
-            _ = signal::ctrl_c() => {
-                info!("Shutting down...");
+            Ok(0) => {
+                info!("End of data stream");
+                break;
+            }
+            Ok(_) => {}
+            Err(e) => {
+                warn!("SDR read error: {}", e);
                 break;
             }
         }
