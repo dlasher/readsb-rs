@@ -15,7 +15,9 @@ LON="${READSB_LON:-$LON}"
 
 GAIN="${READSB_GAIN:-$GAIN}"
 PPM="${READSB_PPM:-$PPM}"
-[ -n "$GAIN" ] && ARGS+=("--gain" "$GAIN")
+if [ -n "$GAIN" ] && [ "$GAIN" != "auto" ]; then
+    ARGS+=("--gain" "$GAIN")
+fi
 [ -n "$PPM" ] && ARGS+=("--ppm" "$PPM")
 [ -n "$READSB_FREQ" ] && ARGS+=("--freq" "$READSB_FREQ")
 

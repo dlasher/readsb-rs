@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.3] - 2026-05-20
+
+### Fixed
+- **`--gain auto` crashes container**: entrypoint now skips `--gain` when
+  value is `auto` (the docker-compose default), letting the binary use
+  its built-in default gain (49.6 dB)
+
 ## [0.3.2] - 2026-05-20
 
 ### Added
