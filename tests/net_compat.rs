@@ -38,6 +38,30 @@ fn test_beast_encode_output() {
 }
 
 #[test]
+fn test_beast_rssi_encoding() {
+    use readsb::net::protocols::beast;
+    let payload = [0x1A, 0x2B, 0x3C, 0x4D];
+
+    let with_signal = beast::encode_beast_output(&payload, 5000.0);
+    assert_eq!(with_signal[8], 19, "RSSI for signal=5000 should be 19");
+
+    let with_zero = beast::encode_beast_output(&payload, 0.0);
+    assert_eq!(with_zero[8], 0xff, "RSSI for signal=0 should be 0xff sentinel");
+
+    let with_negative = beast::encode_beast_output(&payload, -1.0);
+    assert_eq!(with_negative[8], 0xff, "RSSI for signal=-1 should be 0xff sentinel");
+
+    let with_moderate = beast::encode_beast_output(&payload, 50000.0);
+    assert_eq!(with_moderate[8], 195, "RSSI for signal=50000 should be 195");
+
+    let with_clamped = beast::encode_beast_output(&payload, 100000.0);
+    assert_eq!(with_clamped[8], 0xff, "RSSI for signal=100000 should be clamped to 0xff");
+
+    let edge = beast::encode_beast_output(&payload, 65536.0);
+    assert_eq!(edge[8], 255, "RSSI for signal=65536 should be 255 (max)");
+}
+
+#[test]
 fn test_beast_frame_types() {
     use readsb::net::protocols::beast;
 

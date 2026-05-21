@@ -24,7 +24,7 @@ fn escape_beast(data: &[u8]) -> Vec<u8> {
 ///   - timestamp: 6 bytes big-endian, zeros (placeholder)
 ///   - RSSI: signal/256, clamped to 255, 0xff for signal ≤ 0
 ///   - payload: raw Mode-S bytes with 0x1a byte-stuffing
-pub fn encode_beast_output(data: &[u8], _signal_level: f64) -> Vec<u8> {
+pub fn encode_beast_output(data: &[u8], signal_level: f64) -> Vec<u8> {
     let mut out = Vec::with_capacity(data.len() + 10);
 
     out.push(0x1a); // frame start
@@ -35,8 +35,13 @@ pub fn encode_beast_output(data: &[u8], _signal_level: f64) -> Vec<u8> {
     // Timestamp: 6 zero bytes (placeholder)
     out.extend_from_slice(&[0u8; 6]);
 
-    // RSSI: hardcoded 0xff for now (mapping added in Task 4)
-    out.push(0xff);
+    // RSSI: signal_level/256, 0xff sentinel if no signal
+    let rssi = if signal_level <= 0.0 {
+        0xff
+    } else {
+        ((signal_level / 256.0).min(255.0)) as u8
+    };
+    out.push(rssi);
 
     // Payload with byte-stuffing
     out.extend_from_slice(&escape_beast(data));
