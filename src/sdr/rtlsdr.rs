@@ -41,7 +41,7 @@ impl SdrDevice for RtlSdrDevice {
         h.set_tuner_gain(rtl_sdr_rs::TunerGain::Manual(t))
             .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
         h.reset_buffer()
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
+            .ok();
         self.handle = Some(h);
         Ok(())
     }
