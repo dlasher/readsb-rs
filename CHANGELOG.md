@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.5.0] - 2026-05-21
+
+### Added
+- **Tiered console output system**: new `src/console/` module (state.rs,
+  formatter.rs, stats_accumulator.rs, outputter.rs) providing four verbosity
+  levels controlled by `CONSOLE_LEVEL` env var and runtime SIGUSR1/SIGUSR2
+  signals.
+  - **Low**: aggregated stats line every 60s (msg rate, aircraft count, CRC
+    quality, signal stats, DF distribution, CPR decode rate, uptime).
+  - **Medium**: per-aircraft change summary every `CONSOLE_INTERVAL` seconds
+    (default 10), showing only fields that changed since last report with
+    directional indicators (▲/▼/▸/---).
+  - **High**: compact per-message output for decoded ADS-B messages
+    (skips DF11 All-Call and empty frames).
+  - **Max**: every CRC-passing message including DF11/empty frames.
+- **StatsAccumulator**: rolling 60-second window stats for display purposes,
+  independent from the existing cumulative `Stats` struct.
+- **30 unit tests** across all console module components, all pass.
+
+### Changed
+- `--version` from 0.4.0 to 0.5.0.
+
 ## [0.4.0] - 2026-05-20
 
 ### Added

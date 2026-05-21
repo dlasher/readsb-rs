@@ -1,4 +1,5 @@
 use readsb::config::ReadsbConfig;
+use readsb::console::{ConsoleLevel, Outputter};
 use readsb::tracking::Tracker;
 use readsb::crc::CrcFixEngine;
 use readsb::sdr::{SdrManager, SdrType};
@@ -7,11 +8,57 @@ use readsb::net::{NetworkServer, DecodedMessage};
 use readsb::net::server::InputParser;
 use readsb::net::protocols::beast::encode_beast_output;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tokio::signal;
 use tracing::{info, warn};
 use tracing_subscriber::EnvFilter;
+
+static CONSOLE_LEVEL: AtomicU8 = AtomicU8::new(0);
+
+fn console_level_from_env() -> ConsoleLevel {
+    match std::env::var("CONSOLE_LEVEL").as_deref() {
+        Ok("low") => ConsoleLevel::Low,
+        Ok("medium") => ConsoleLevel::Medium,
+        Ok("high") => ConsoleLevel::High,
+        Ok("max") => ConsoleLevel::Max,
+        _ => ConsoleLevel::Low,
+    }
+}
+
+fn console_interval_from_env() -> u64 {
+    std::env::var("CONSOLE_INTERVAL")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(10)
+}
+
+fn level_to_u8(level: ConsoleLevel) -> u8 {
+    level as u8
+}
+
+fn level_from_u8(v: u8) -> ConsoleLevel {
+    match v {
+        0 => ConsoleLevel::Low,
+        1 => ConsoleLevel::Medium,
+        2 => ConsoleLevel::High,
+        _ => ConsoleLevel::Max,
+    }
+}
+
+fn cycle_level_u8(current: u8, forward: bool) -> u8 {
+    match (current, forward) {
+        (0, true) => 1,
+        (1, true) => 2,
+        (2, true) => 3,
+        (3, true) => 0,
+        (0, false) => 3,
+        (3, false) => 2,
+        (2, false) => 1,
+        (1, false) => 0,
+        _ => 0,
+    }
+}
 
 #[tokio::main]
 async fn main() {
@@ -21,6 +68,10 @@ async fn main() {
 
     let config = ReadsbConfig::from_cli();
     info!("Starting readsb-rs v{}", env!("CARGO_PKG_VERSION"));
+
+    // Set initial console level
+    let initial_level = console_level_from_env();
+    CONSOLE_LEVEL.store(level_to_u8(initial_level), Ordering::Relaxed);
 
     let tracker = Arc::new(Tracker::new());
     let crc_engine = Arc::new(CrcFixEngine::new(112));
@@ -33,13 +84,11 @@ async fn main() {
     let message_tx = net_server.message_tx.clone();
     let incoming_tx = net_server.incoming_tx.clone();
 
-    // Determine input format: RTL-TCP sends U8, RTL-SDR USB sends U8, files may vary
     let input_format = match config.iformat.as_deref() {
         Some("CU8") => readsb::demod::InputFormat::U8,
         Some("SC16") => readsb::demod::InputFormat::SC16Q11,
         Some("CF32") => readsb::demod::InputFormat::F32,
         _ => {
-            // Live SDR (USB or RTL-TCP) outputs U8; file input defaults to SC16Q11
             if config.ifile.is_some() {
                 readsb::demod::InputFormat::SC16Q11
             } else {
@@ -65,7 +114,6 @@ async fn main() {
                         SdrType::RtlSdr(0)
                     }
                 } else {
-                    // Parse --device as a numeric device index
                     let idx: u32 = dev.parse().unwrap_or(0);
                     info!("Using RTL-SDR device index {}", idx);
                     SdrType::RtlSdr(idx)
@@ -119,7 +167,6 @@ async fn main() {
         }
     });
 
-    // Periodic JSON output
     if let Some(ref json_dir) = config.json_dir {
         let dir = json_dir.clone();
         let tracker_json = tracker.clone();
@@ -160,9 +207,11 @@ async fn main() {
 
     info!("Entering main processing loop");
 
-    // Use a shutdown flag instead of tokio::select! so that a blocking
-    // read_sync (which may be running on a blocking thread) is not
-    // cancelled mid-read, which would invalidate buffer pointers.
+    // Console outputter
+    let medium_interval = console_interval_from_env();
+    let mut outputter = Outputter::new(initial_level, medium_interval);
+
+    // Signal handlers
     let shutdown = Arc::new(AtomicBool::new(false));
     let shutdown_signals = shutdown.clone();
     tokio::spawn(async move {
@@ -171,8 +220,34 @@ async fn main() {
         shutdown_signals.store(true, Ordering::Relaxed);
     });
 
+    // SIGUSR1/SIGUSR2 for console level cycling
+    {
+        use tokio::signal::unix::{signal, SignalKind};
+        if let Ok(mut sigusr1) = signal(SignalKind::user_defined1()) {
+            tokio::spawn(async move {
+                loop {
+                    sigusr1.recv().await;
+                    let cur = CONSOLE_LEVEL.load(Ordering::Relaxed);
+                    let next = cycle_level_u8(cur, true);
+                    CONSOLE_LEVEL.store(next, Ordering::Relaxed);
+                    info!("Console level: {:?}", level_from_u8(next));
+                }
+            });
+        }
+        if let Ok(mut sigusr2) = signal(SignalKind::user_defined2()) {
+            tokio::spawn(async move {
+                loop {
+                    sigusr2.recv().await;
+                    let cur = CONSOLE_LEVEL.load(Ordering::Relaxed);
+                    let next = cycle_level_u8(cur, false);
+                    CONSOLE_LEVEL.store(next, Ordering::Relaxed);
+                    info!("Console level: {:?}", level_from_u8(next));
+                }
+            });
+        }
+    }
+
     let mut total_messages: u64 = 0;
-    let mut iter_count: u64 = 0;
     let mut stats = Stats::new();
     let mut stats_printed_at = SystemTime::now();
 
@@ -181,7 +256,6 @@ async fn main() {
         if shutdown.load(Ordering::Relaxed) { break; }
         match result {
             Ok(n) if n > 0 => {
-                iter_count += 1;
                 let count = readsb::demod::convert_to_magnitude(
                     &sample_buffer[..n],
                     input_format,
@@ -192,12 +266,13 @@ async fn main() {
                 );
                 if let Some((ac_code, _spi)) = readsb::demod::demodulate_ac(&magnitude_buffer) {
                     let _ = ac_code;
-                    // Full Mode A/C tracking pending: associate squawk with aircraft
                 }
-                let now = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
+                let now = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
                     .unwrap_or_default()
                     .as_millis() as i64;
+                let now_monotonic = Instant::now();
+
                 for raw_msg in &messages {
                     let msgbits = raw_msg.len() * 8;
                     if let Some(result) = readsb::modes::parse_modes_message(
@@ -206,6 +281,14 @@ async fn main() {
                         if result.crc_ok {
                             tracker.update_from_message(&result.message, now);
                             total_messages += 1;
+
+                            // Outputter feed — per-message console output
+                            let current_level = level_from_u8(CONSOLE_LEVEL.load(Ordering::Relaxed));
+                            outputter.set_level(current_level);
+                            for line in outputter.feed(&result.message, now_monotonic) {
+                                println!("{}", line);
+                            }
+
                             let beast_data = encode_beast_output(&DecodedMessage {
                                 data: raw_msg.clone(),
                                 client_id: 0,
@@ -221,17 +304,23 @@ async fn main() {
                 stats.samples_processed += count as u64;
                 stats.messages_total = total_messages as u32;
                 stats.unique_aircraft = tracker.registry.len() as u32;
-                if iter_count == 1 || iter_count.is_multiple_of(100) {
-                    let candidates = messages.len();
-                    let len = tracker.registry.len();
-                    let tag = if iter_count == 1 { "FIRST" } else { "iter" };
-                    println!("[{} {} bytes={} mag={} candidates={} decodes={} aircraft={}]",
-                        tag, iter_count, n, count, candidates, total_messages, len);
-                    if stats_printed_at.elapsed().unwrap_or_default().as_secs() >= 60 {
-                        info!("Stats: {} msgs, {} a/c, {} samples",
-                            stats.messages_total, stats.unique_aircraft, stats.samples_processed);
-                        stats_printed_at = SystemTime::now();
-                    }
+
+                // Periodic low/medium console output
+                let now_monotonic = Instant::now();
+                let tracked = tracker.registry.len() as u32;
+
+                for line in outputter.flush_low(now_monotonic, tracked) {
+                    println!("{}", line);
+                }
+                for line in outputter.flush_medium(now_monotonic) {
+                    println!("{}", line);
+                }
+
+                // Legacy stats — keep for backward compat (can be removed later)
+                if stats_printed_at.elapsed().unwrap_or_default().as_secs() >= 60 {
+                    info!("Stats: {} msgs, {} a/c, {} samples",
+                        stats.messages_total, stats.unique_aircraft, stats.samples_processed);
+                    stats_printed_at = SystemTime::now();
                 }
             }
             Ok(0) => {
@@ -244,6 +333,12 @@ async fn main() {
                 break;
             }
         }
+    }
+
+    // Final stats on shutdown
+    let tracked = tracker.registry.len() as u32;
+    for line in outputter.flush_low_final(tracked) {
+        println!("{}", line);
     }
 
     net_handle.abort();
