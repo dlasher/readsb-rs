@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.3.4] - 2026-05-20
+
+### Fixed
+- **Crash when short (56-bit) message received**: `parse_modes_message`
+  was called with hardcoded 112-bit message length; short messages (7
+  bytes) caused `range end index 14 out of range for slice of length 7`.
+  Now uses `raw_msg.len() * 8` to determine actual bit length.
+
+### Added
+- `RUST_BACKTRACE=1` set in `docker-entrypoint.sh` for panic diagnostics
+
 ## [0.3.3] - 2026-05-20
 
 ### Fixed

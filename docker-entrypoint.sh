@@ -1,5 +1,6 @@
 #!/bin/bash
 set -e
+export RUST_BACKTRACE=1
 
 ARGS=()
 

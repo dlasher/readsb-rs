@@ -122,8 +122,9 @@ async fn main() {
                     .unwrap_or_default()
                     .as_millis() as i64;
                 for raw_msg in &messages {
+                    let msgbits = raw_msg.len() * 8;
                     if let Some(result) = readsb::modes::parse_modes_message(
-                        raw_msg, 112, &crc_engine,
+                        raw_msg, msgbits, &crc_engine,
                     ) {
                         if result.crc_ok {
                             tracker.update_from_message(&result.message, now);
