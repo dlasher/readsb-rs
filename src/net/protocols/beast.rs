@@ -27,7 +27,7 @@ pub fn encode_beast_output(msg: &DecodedMessage) -> Vec<u8> {
     out.extend_from_slice(&now.to_be_bytes()[2..]); // last 6 bytes
 
     // Message type — derive from payload first byte (DF type)
-    let msg_type = msg.data.first().map(|b| (b >> 3) & 0x1F).unwrap_or(0) as u8;
+    let msg_type = msg.data.first().map(|b| (b >> 3) & 0x1F).unwrap_or(0);
     out.push(msg_type);
 
     // Payload

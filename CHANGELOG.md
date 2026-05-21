@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.3.1] - 2026-05-20
+
+### Fixed
+- **CI clippy failures**: 15 new lints from Rust 1.95 toolchain resolved
+  across 8 source files (io_other_error, needless_range_loop,
+  field_reassign_with_default, len_without_is_empty, collapsible_if,
+  unnecessary_cast, manual_is_multiple_of)
+- **aarch64 build in CI**: missing `targets:` parameter on
+  `dtolnay/rust-toolchain@stable` causing `can't find crate for core`
+- **Docker build**: `COPY benches/ benches/` referenced directory excluded
+  by `.dockerignore`; removed unnecessary COPY line
+
+### Changed
+- Multi-arch Docker image published to GHCR:
+  `ghcr.io/dlasher/readsb-rs:latest` (main) and semver tags (v*)
+
 ## [0.3.0] - 2026-05-20
 
 ### Fixed

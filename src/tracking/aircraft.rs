@@ -168,6 +168,10 @@ impl AircraftRegistry {
     pub fn len(&self) -> usize {
         self.aircraft.read().unwrap().len()
     }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
 }
 
 impl Default for AircraftRegistry {

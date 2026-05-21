@@ -132,7 +132,7 @@ async fn main() {
                     }
                 }
                 tracker.remove_stale(now);
-                if iter_count == 1 || iter_count % 100 == 0 {
+                if iter_count == 1 || iter_count.is_multiple_of(100) {
                     let candidates = messages.len();
                     let len = tracker.registry.len();
                     let tag = if iter_count == 1 { "FIRST" } else { "iter" };

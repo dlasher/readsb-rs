@@ -104,8 +104,7 @@ impl Tracker {
             a.cpr_even_lon = msg.cpr_lon;
         }
         // Decode when we have both even and odd frames
-        if a.cpr_even_lat != 0 || a.cpr_even_lon != 0 {
-            if a.cpr_odd_lat != 0 || a.cpr_odd_lon != 0 {
+        if (a.cpr_even_lat != 0 || a.cpr_even_lon != 0) && (a.cpr_odd_lat != 0 || a.cpr_odd_lon != 0) {
                 if let Some((lat, lon)) = decode_cpr_airborne(
                     a.cpr_even_lat as i32, a.cpr_even_lon as i32,
                     a.cpr_odd_lat as i32, a.cpr_odd_lon as i32,
@@ -118,7 +117,6 @@ impl Tracker {
                         a.seen_pos = now;
                     }
                 }
-            }
         }
     }
 

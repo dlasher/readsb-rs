@@ -7,6 +7,7 @@ pub struct ParseResult {
     pub corrected: bool,
 }
 
+#[allow(clippy::field_reassign_with_default)]
 pub fn parse_modes_message(msg: &[u8], msgbits: usize, crc_engine: &CrcFixEngine) -> Option<ParseResult> {
     if msgbits != 56 && msgbits != 112 { return None; }
     let mut mm = ModesMessage::default();

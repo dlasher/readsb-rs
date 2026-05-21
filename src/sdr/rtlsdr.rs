@@ -32,14 +32,14 @@ impl RtlSdrDevice {
 impl SdrDevice for RtlSdrDevice {
     async fn open(&mut self) -> io::Result<()> {
         let mut h = rtl_sdr_rs::RtlSdr::open_with_index(self.device_index as usize)
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
+            .map_err(|e| io::Error::other(e.to_string()))?;
         h.set_sample_rate(self.sample_rate)
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
+            .map_err(|e| io::Error::other(e.to_string()))?;
         h.set_center_freq(self.freq_hz)
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
+            .map_err(|e| io::Error::other(e.to_string()))?;
         let t = (self.gain_db * 10.0) as i32;
         h.set_tuner_gain(rtl_sdr_rs::TunerGain::Manual(t))
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
+            .map_err(|e| io::Error::other(e.to_string()))?;
         h.reset_buffer()
             .ok();
         self.handle = Some(h);
@@ -92,10 +92,10 @@ impl SdrDevice for RtlSdrDevice {
             let dev = unsafe { &*(dev_addr as *const rtl_sdr_rs::RtlSdr) };
             let buf = unsafe { std::slice::from_raw_parts_mut(buf_addr as *mut u8, buf_len) };
             dev.read_sync(buf)
-                .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))
+                .map_err(|e| io::Error::other(e.to_string()))
         })
         .await
-        .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?
+        .map_err(|e| io::Error::other(e.to_string()))?
     }
 
     fn name(&self) -> &str {

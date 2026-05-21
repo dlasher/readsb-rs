@@ -13,8 +13,7 @@ pub fn modes_checksum(msg: &[u8], bitlen: usize) -> u32 {
 
     // Process data bytes through the CRC shift register
     let mut crc: u32 = 0;
-    for i in 0..databytes {
-        let byte = msg[i];
+    for &byte in msg.iter().take(databytes) {
         for bitidx in 0..8 {
             let bitpos = 7 - bitidx;
             let msg_bit = (byte >> bitpos) & 1;
