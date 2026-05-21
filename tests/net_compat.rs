@@ -38,6 +38,17 @@ fn test_beast_encode_output() {
 }
 
 #[test]
+fn test_beast_frame_types() {
+    use readsb::net::protocols::beast;
+
+    let encoded_short = beast::encode_beast_output(&[0u8; 7], 0.0);
+    assert_eq!(encoded_short[1], 0x32, "7B payload → type 0x32");
+
+    let encoded_long = beast::encode_beast_output(&[0u8; 14], 0.0);
+    assert_eq!(encoded_long[1], 0x33, "14B payload → type 0x33");
+}
+
+#[test]
 fn test_beast_byte_stuffing() {
     use readsb::net::protocols::beast;
     let data = [0x00, 0x1a, 0x84, 0x1a, 0xc3, 0xb3, 0x1d];
