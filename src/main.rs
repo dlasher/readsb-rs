@@ -125,10 +125,13 @@ async fn main() {
                     if let Some(result) = readsb::modes::parse_modes_message(
                         raw_msg, 112, &crc_engine,
                     ) {
-                        tracker.update_from_message(&result.message, now);
-                        total_messages += 1;
+                        if result.crc_ok {
+                            tracker.update_from_message(&result.message, now);
+                            total_messages += 1;
+                        }
                     }
                 }
+                tracker.remove_stale(now);
                 if iter_count == 1 || iter_count % 100 == 0 {
                     let preambles = messages.len();
                     let len = tracker.registry.len();
