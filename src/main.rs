@@ -4,7 +4,7 @@ use readsb::tracking::Tracker;
 use readsb::crc::CrcFixEngine;
 use readsb::sdr::{SdrManager, SdrType};
 use readsb::stats::Stats;
-use readsb::net::{NetworkServer, DecodedMessage};
+use readsb::net::NetworkServer;
 use readsb::net::server::InputParser;
 use readsb::net::protocols::beast::encode_beast_output;
 use std::sync::Arc;
@@ -79,12 +79,14 @@ async fn main() {
     let tracker = Arc::new(t);
     let crc_engine = Arc::new(CrcFixEngine::new(112));
 
-    let (mut net_server, _net_rx) = NetworkServer::new(&[
+    let (mut net_server, _beast_rx, _hex_rx, _sbs_rx) = NetworkServer::new(&[
         (&format!("{}:{}", config.net_bind_address.as_deref().unwrap_or("0.0.0.0"), config.net_ri_port), InputParser::Hex),
         (&format!("{}:{}", config.net_bind_address.as_deref().unwrap_or("0.0.0.0"), config.net_bo_port), InputParser::Beast),
         (&format!("{}:{}", config.net_bind_address.as_deref().unwrap_or("0.0.0.0"), config.net_sbs_port), InputParser::Sbs),
     ]);
-    let message_tx = net_server.message_tx.clone();
+    let beast_tx = net_server.beast_tx.clone();
+    let hex_tx = net_server.hex_tx.clone();
+    let sbs_tx = net_server.sbs_tx.clone();
     let incoming_tx = net_server.incoming_tx.clone();
 
     let input_format = match config.iformat.as_deref() {
@@ -166,6 +168,22 @@ async fn main() {
                         .as_millis() as i64;
                     tracker_in.update_from_message(&result.message, now);
                 }
+            }
+        }
+    });
+
+    // SBS output — periodic aircraft iteration (every 1s)
+    let tracker_sbs = tracker.clone();
+    tokio::spawn(async move {
+        let mut tick = tokio::time::interval(Duration::from_secs(1));
+        loop {
+            tick.tick().await;
+            let now = SystemTime::now()
+                .duration_since(UNIX_EPOCH).unwrap_or_default()
+                .as_millis() as i64;
+            for a in tracker_sbs.registry.iter_aircraft() {
+                let sbs_data = readsb::net::protocols::sbs::encode_sbs_aircraft(&a, now);
+                let _ = sbs_tx.send(sbs_data);
             }
         }
     });
@@ -293,10 +311,9 @@ async fn main() {
                             }
 
                             let beast_data = encode_beast_output(raw_msg, *signal);
-                            let _ = message_tx.send(DecodedMessage {
-                                data: beast_data,
-                                client_id: 0,
-                            });
+                            let _ = beast_tx.send(beast_data);
+                            let hex_data = readsb::net::protocols::hex::encode_hex_output(raw_msg);
+                            let _ = hex_tx.send(hex_data);
                         }
                     }
                 }

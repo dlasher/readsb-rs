@@ -13,7 +13,7 @@ impl ClientConnection {
         mut stream: TcpStream,
         parser: InputParser,
         incoming_tx: broadcast::Sender<DecodedMessage>,
-        mut outgoing_rx: broadcast::Receiver<DecodedMessage>,
+        mut outgoing_rx: broadcast::Receiver<Vec<u8>>,
     ) -> io::Result<()> {
         let (mut rx, mut tx) = stream.split();
 
@@ -65,11 +65,11 @@ async fn read_loop(
     Ok(())
 }
 
-async fn write_loop(tx: &mut tokio::net::tcp::WriteHalf<'_>, rx: &mut broadcast::Receiver<DecodedMessage>) -> io::Result<()> {
+async fn write_loop(tx: &mut tokio::net::tcp::WriteHalf<'_>, rx: &mut broadcast::Receiver<Vec<u8>>) -> io::Result<()> {
     loop {
         match rx.recv().await {
             Ok(msg) => {
-                if let Err(e) = tx.write_all(&msg.data).await {
+                if let Err(e) = tx.write_all(&msg).await {
                     warn!("Write error: {}", e);
                     break;
                 }

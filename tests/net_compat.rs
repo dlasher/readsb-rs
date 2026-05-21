@@ -38,6 +38,25 @@ fn test_beast_encode_output() {
 }
 
 #[test]
+fn test_network_server_per_port_channels() {
+    use readsb::net::server::{NetworkServer, InputParser};
+
+    let (server, beast_rx, hex_rx, sbs_rx) = NetworkServer::new(&[
+        ("0.0.0.0:0", InputParser::Beast),
+        ("0.0.0.0:0", InputParser::Hex),
+        ("0.0.0.0:0", InputParser::Sbs),
+    ]);
+
+    assert!(!beast_rx.is_closed(), "Beast receiver must be open");
+    assert!(!hex_rx.is_closed(), "Hex receiver must be open");
+    assert!(!sbs_rx.is_closed(), "SBS receiver must be open");
+
+    assert!(server.beast_tx.send(vec![0x1a, 0x32]).is_ok(), "Beast send must succeed");
+    assert!(server.hex_tx.send(b"*8D48;\n".to_vec()).is_ok(), "Hex send must succeed");
+    assert!(server.sbs_tx.send(b"MSG,7,...".to_vec()).is_ok(), "SBS send must succeed");
+}
+
+#[test]
 fn test_sbs_encode_position() {
     use readsb::net::protocols::sbs;
     use readsb::tracking::Aircraft;

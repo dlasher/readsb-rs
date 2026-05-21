@@ -22,7 +22,7 @@ async fn test_multi_listener_accept() {
     let addr1 = format!("127.0.0.1:{}", port1);
     let addr2 = format!("127.0.0.1:{}", port2);
 
-    let (mut server, _rx) = readsb::net::NetworkServer::new(&[(&addr1, InputParser::None), (&addr2, InputParser::None)]);
+    let (mut server, _beast_rx, _hex_rx, _sbs_rx) = readsb::net::NetworkServer::new(&[(&addr1, InputParser::Beast), (&addr2, InputParser::Beast)]);
 
     let jh = tokio::spawn(async move {
         server.run().await.ok();
@@ -71,8 +71,8 @@ async fn test_client_receives_broadcast() {
     let port = find_port();
     let addr = format!("127.0.0.1:{}", port);
 
-    let (mut server, _rx) = readsb::net::NetworkServer::new(&[(&addr, InputParser::None)]);
-    let tx = server.message_tx.clone();
+    let (mut server, _beast_rx, _hex_rx, _sbs_rx) = readsb::net::NetworkServer::new(&[(&addr, InputParser::Beast)]);
+    let tx = server.beast_tx.clone();
 
     let jh = tokio::spawn(async move {
         server.run().await.ok();
@@ -86,11 +86,8 @@ async fn test_client_receives_broadcast() {
     // Give the server time to spawn the handler
     tokio::time::sleep(Duration::from_millis(100)).await;
 
-    // Publish a message on the broadcast channel
-    let msg = readsb::net::DecodedMessage {
-        data: vec![0x10, 0x03, 0x01, 0x02, 0x03],
-        client_id: 0,
-    };
+    // Publish a message on the Beast broadcast channel
+    let msg: Vec<u8> = vec![0x10, 0x03, 0x01, 0x02, 0x03];
     tx.send(msg).unwrap();
 
     // Client should receive the message in its stream

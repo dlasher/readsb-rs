@@ -20,23 +20,20 @@ pub struct DecodedMessage {
 
 pub struct NetworkServer {
     bind_addrs: Vec<(String, InputParser)>,
-    pub message_tx: broadcast::Sender<DecodedMessage>,
+    pub beast_tx: broadcast::Sender<Vec<u8>>,
+    pub hex_tx: broadcast::Sender<Vec<u8>>,
+    pub sbs_tx: broadcast::Sender<Vec<u8>>,
     pub incoming_tx: broadcast::Sender<DecodedMessage>,
 }
 
 impl NetworkServer {
-    pub fn new(addrs: &[(&str, InputParser)]) -> (Self, broadcast::Receiver<DecodedMessage>) {
-        let (out_tx, out_rx) = broadcast::channel(1024);
+    pub fn new(addrs: &[(&str, InputParser)]) -> (Self, broadcast::Receiver<Vec<u8>>, broadcast::Receiver<Vec<u8>>, broadcast::Receiver<Vec<u8>>) {
+        let (beast_tx, beast_rx) = broadcast::channel(1024);
+        let (hex_tx, hex_rx) = broadcast::channel(1024);
+        let (sbs_tx, sbs_rx) = broadcast::channel(1024);
         let (in_tx, _) = broadcast::channel(1024);
         let bind_addrs = addrs.iter().map(|(a, p)| (a.to_string(), *p)).collect();
-        (NetworkServer { bind_addrs, message_tx: out_tx, incoming_tx: in_tx }, out_rx)
-    }
-
-    #[allow(dead_code)] // API alternative constructor; kept for testability
-    pub fn with_channel(addrs: &[(&str, InputParser)], channel: broadcast::Sender<DecodedMessage>) -> Self {
-        let (in_tx, _) = broadcast::channel(1024);
-        let bind_addrs = addrs.iter().map(|(a, p)| (a.to_string(), *p)).collect();
-        NetworkServer { bind_addrs, message_tx: channel, incoming_tx: in_tx }
+        (NetworkServer { bind_addrs, beast_tx, hex_tx, sbs_tx, incoming_tx: in_tx }, beast_rx, hex_rx, sbs_rx)
     }
 
     pub async fn run(&mut self) -> io::Result<()> {
@@ -61,11 +58,18 @@ impl NetworkServer {
                     (stream, addr, listeners[idx].1)
                 }
             };
+
             let in_tx = self.incoming_tx.clone();
-            let rx = self.message_tx.subscribe();
+            let out_rx: broadcast::Receiver<Vec<u8>> = match parser {
+                InputParser::Beast => self.beast_tx.subscribe(),
+                InputParser::Hex => self.hex_tx.subscribe(),
+                InputParser::Sbs => self.sbs_tx.subscribe(),
+                InputParser::None => continue,
+            };
+
             tokio::spawn(async move {
                 warn!("Client connected: {} ({:?})", addr, parser);
-                if let Err(e) = ClientConnection::handle(stream, parser, in_tx, rx).await {
+                if let Err(e) = ClientConnection::handle(stream, parser, in_tx, out_rx).await {
                     warn!("Client {} error: {}", addr, e);
                 }
             });
