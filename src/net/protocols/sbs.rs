@@ -1,4 +1,5 @@
 use crate::tracking::Aircraft;
+use crate::tracking::validity::TRACK_STALE;
 
 /// Convert epoch milliseconds to (YYYY/MM/DD, HH:mm:ss.SSS) timestamp strings.
 fn sbs_timestamp(now_ms: i64) -> (String, String) {
@@ -54,6 +55,14 @@ pub fn encode_sbs_aircraft(a: &Aircraft, now_ms: i64) -> Vec<u8> {
         "MSG,7,1,1,{},1,{},{},{},{},,,,,,,,,,,,,\r\n",
         icao, date, time, date, time
     ));
+
+    if a.baro_alt_valid.is_valid(now_ms, TRACK_STALE) {
+        lines.push(format!(
+            "MSG,5,1,1,{},1,{},{},{},{},,{alt},,,,,,,,,,,,,\r\n",
+            icao, date, time, date, time,
+            alt = a.baro_alt,
+        ));
+    }
 
     let signal_db = a.get_signal_db();
     lines.push(format!(

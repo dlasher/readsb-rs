@@ -38,6 +38,26 @@ fn test_beast_encode_output() {
 }
 
 #[test]
+fn test_sbs_encode_altitude() {
+    use readsb::net::protocols::sbs;
+    use readsb::tracking::Aircraft;
+    use readsb::types::{AddrType, DataSource};
+
+    let mut aircraft = Aircraft::new(0x4840D6, AddrType::AdsbIcao, 1716300000000);
+    aircraft.baro_alt = 35000;
+    aircraft.baro_alt_valid.update(DataSource::ModeAc, 1716300000000);
+
+    let encoded = sbs::encode_sbs_aircraft(&aircraft, 1716300000000);
+    let output = String::from_utf8(encoded).unwrap();
+    assert!(output.contains("MSG,5,1,1,4840D6,1,2024/05/21,14:00:00.000,2024/05/21,14:00:00.000,,35000,,,,,,,,,,,"),
+        "MSG,5 must be emitted with altitude=35000 when valid");
+
+    let encoded = sbs::encode_sbs_aircraft(&aircraft, 1716300120000);
+    let output = String::from_utf8(encoded).unwrap();
+    assert!(!output.contains("MSG,5"), "MSG,5 must NOT be emitted when altitude is stale");
+}
+
+#[test]
 fn test_sbs_encode_icao_signal() {
     use readsb::net::protocols::sbs;
     use readsb::tracking::Aircraft;
