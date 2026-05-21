@@ -174,70 +174,409 @@ Constructor creates three outbound channels. `run()` subscribes clients to the a
 
 ## TDD cycles
 
-### Cycle 1: Server architecture (per-port channels)
+Each cycle: write the test, verify it fails for the expected reason (not a typo), write minimal code
+to make it green, verify all tests still pass, then refactor. No implementation code before the test.
 
-**RED** — Compilation error: `NetworkServer::new()` / `Server::run()` signatures change.
+### Cycle 1: Standard Beast frame structure (no byte-stuffing yet)
 
-**GREEN** — Three outbound channels, per-parser subscription.
+**RED** — `test_beast_standard_format`
 
-**Tests**: Unit test verifying different parsers get different broadcast receivers.
+14-byte payload `[0x8D, 0x48, 0x40, 0xD6, 0x20, 0x2C, 0xC3, 0x71, 0xC3, 0x2C, 0xE0, 0x57, 0x60, 0x98]`, signal 0.0:
 
-### Cycle 2: Standard Beast frame structure
+```
+assert_eq!(encoded[0], 0x1a);
+assert_eq!(encoded[1], 0x33);              // long frame
+for i in 2..8 { assert_eq!(encoded[i], 0x00); }  // timestamp zeros
+assert_eq!(encoded[8], 0xff);              // RSSI sentinel (signal=0)
+assert_eq!(&encoded[9..23], &data);        // payload verbatim
+assert_eq!(encoded.len(), 23);             // 1+1+6+1+14 = 23
+```
 
-**RED** — `test_beast_standard_format`: 14B payload → byte 0 = `0x1a`, byte 1 = `0x33`, bytes 2-7 = zeros, byte 8 = RSSI, byte 9+ = payload.
+Verify RED: current encoder returns `0x10 0x02` MLAT format — `encoded[0] != 0x1a`, FAIL.
 
-**GREEN** — Rewrite `encode_beast_output` with standard format and `escape_beast`.
+**GREEN** — Rewrite `encode_beast_output(data: &[u8], signal_level: f64) -> Vec<u8>`:
+- `0x1a` leading byte
+- Type: `0x32` for len ≤ 7, `0x33` for len 14
+- 6 zero timestamp bytes
+- RSSI hardcoded `0xff` (mapping added in Cycle 4)
+- Payload appended verbatim (no stuffing yet — that's Cycle 2)
+- Remove old `encode_beast_output(&DecodedMessage)` signature
 
-### Cycle 3: Beast byte-stuffing
+**REFACTOR** — None yet.
 
-**RED** — `test_beast_byte_stuffing`: payload with `0x1a` bytes → doubled in output.
+### Cycle 2: Beast byte-stuffing
 
-**GREEN** — `escape_beast` in the output path.
+**RED** — `test_beast_byte_stuffing`
+
+Payload: `[0x00, 0x1a, 0x84, 0x1a, 0xc3, 0xb3, 0x1d]` (7 bytes with two `0x1a`), signal 0.0:
+
+```
+// Frame: 0x1a + 0x32 + 6B timestamp + 0xff RSSI + payload (stuffed) = 10 header + 9 = 19
+assert_eq!(encoded[0], 0x1a);
+assert_eq!(encoded[1], 0x32);              // short frame
+assert_eq!(encoded.len(), 19);             // 1+1+6+1+7+2(stuffing) = 19
+assert_eq!(encoded[10], 0x00);             // first payload byte
+assert_eq!(encoded[11], 0x1a);             // 0x1a in payload
+assert_eq!(encoded[12], 0x1a);             // stuffed copy
+assert_eq!(encoded[13], 0x84);
+assert_eq!(encoded[14], 0x1a);             // second 0x1a in payload
+assert_eq!(encoded[15], 0x1a);             // stuffed copy
+assert_eq!(encoded[16], 0xc3);
+assert_eq!(encoded[17], 0xb3);
+assert_eq!(encoded[18], 0x1d);
+```
+
+Verify RED: no stuffing → encoded.len() = 17, assertion `encoded.len() == 19` FAIL.
+
+**GREEN** — Add `fn escape_beast(data: &[u8]) -> Vec<u8>` (doubles `0x1a` bytes). Call it on payload before appending.
+
+**REFACTOR** — None.
+
+### Cycle 3: Beast frame types (0x32 / 0x33)
+
+**RED** — `test_beast_frame_types`
+
+```
+let encoded_short = beast::encode_beast_output(&[0u8; 7], 0.0);
+assert_eq!(encoded_short[1], 0x32);   // 7-byte short → type 0x32
+
+let encoded_long = beast::encode_beast_output(&[0u8; 14], 0.0);
+assert_eq!(encoded_long[1], 0x33);    // 14-byte long → type 0x33
+```
+
+Verify RED: current `encode_beast_output` already has `0x32`/`0x33` logic from Cycle 1 — passes immediately. This is a **verification test** confirming the type byte, not a new behavior. Write the test, confirm it goes GREEN on first run, no RED phase needed. Document this as a post-hoc coverage addition, not a RED-GREEN cycle.
+
+Move to next cycle.
 
 ### Cycle 4: Beast RSSI encoding + sentinel
 
-**RED** — `test_beast_rssi_encoding`: signal=5000 → 19, signal=0 → 0xFF, signal=100000 → 0xFF.
+**RED** — `test_beast_rssi_encoding`
 
-**GREEN** — RSSI mapping formula.
+Payload `[0x1A, 0x2B, 0x3C, 0x4D]` (4 bytes):
 
-### Cycle 5: Beast frame types
+```
+let with_signal = beast::encode_beast_output(&payload, 5000.0);
+assert_eq!(with_signal[8], 19);       // 5000 / 256 = 19.53 → 19
 
-**RED** — `test_beast_frame_types`: 7B → `0x32`, 14B → `0x33`.
+let with_zero = beast::encode_beast_output(&payload, 0.0);
+assert_eq!(with_zero[8], 0xff);       // sentinel
 
-**GREEN** — Update type constants.
+let with_negative = beast::encode_beast_output(&payload, -1.0);
+assert_eq!(with_negative[8], 0xff);   // sentinel
 
-### Cycle 6: Hex output
+let with_moderate = beast::encode_beast_output(&payload, 50000.0);
+assert_eq!(with_moderate[8], 195);    // 50000 / 256 = 195.3 → 195
 
-**RED** — `test_hex_encode`: `[0x8D, 0x48]` → `"*8D48;\n"`.
+let with_clamped = beast::encode_beast_output(&payload, 100000.0);
+assert_eq!(with_clamped[8], 0xff);    // clamped to 255, but 255 itself is max before clamp
 
-**GREEN** — Implement `encode_hex_output`.
+let edge_65536 = beast::encode_beast_output(&payload, 65536.0);
+assert_eq!(edge_65536[8], 255);       // 65536 / 256 = 256 → clamp to 255
+```
 
-### Cycle 7: SBS output — ICAO and signal (mandatory)
+Verify RED: first assertion fails — RSSI hardcoded to `0xff`, expects 19.
 
-**RED** — `test_sbs_encode_icao_signal`: Aircraft with `addr=0x4840D6` → contains `MSG,7,1,1,4840D6` and `MSG,8`.
+**GREEN** — Replace hardcoded `0xff` with:
+```rust
+let rssi = if signal_level <= 0.0 {
+    0xff
+} else {
+    ((signal_level / 256.0).min(255.0)) as u8
+};
+```
 
-**GREEN** — Implement `encode_sbs_aircraft` with MSG,7 and MSG,8.
+**REFACTOR** — None.
 
-### Cycle 8: SBS — callsign, altitude, position, velocity
+### Cycle 5: Hex output encoder
 
-**RED** — `test_sbs_encode_callsign`, `test_sbs_encode_altitude`, `test_sbs_encode_position`, `test_sbs_encode_velocity`.
+**RED** — `test_hex_encode_output`
 
-**GREEN** — Extend `encode_sbs_aircraft`.
+```
+let encoded = hex::encode_hex_output(&[0x8D, 0x48, 0x40, 0xD6]);
+assert_eq!(encoded, b"*8D4840D6;\n");
 
-### Cycle 9: Wire main.rs
+let encoded_empty = hex::encode_hex_output(&[]);
+assert_eq!(encoded_empty, b"*;\n");
 
-**RED** — Compilation: old `message_tx` replaced, `encode_beast_output` signature changed, new encoders missing, periodic SBS task missing.
+let encoded_wide = hex::encode_hex_output(&[0x00, 0xFF, 0x0A]);
+assert_eq!(encoded_wide, b"*00FF0A;\n");
+```
 
-**GREEN** — Wire all three beast/hex sends in message loop, add SBS task, remove old `encode_beast_output(&DecodedMessage{...})` wrapper.
+Verify RED: `encode_hex_output` doesn't exist → compilation error. Valid TDD RED.
+
+**GREEN** — Add to `hex.rs`:
+```rust
+pub fn encode_hex_output(data: &[u8]) -> Vec<u8> {
+    let hex: String = data.iter().map(|b| format!("{:02X}", b)).collect();
+    format!("*{};\n", hex).into_bytes()
+}
+```
+
+**REFACTOR** — None.
+
+### Cycle 6: SBS output — MSG,7 and MSG,8 (mandatory rows)
+
+**RED** — `test_sbs_encode_icao_signal`
+
+Create an `Aircraft` with `addr = 0x4840D6`, `signal_next = 0`, `now_ms = 1716300000000` (2024-05-21T14:00:00.000):
+
+```
+let encoded = sbs::encode_sbs_aircraft(&aircraft, 1716300000000);
+let output = String::from_utf8(encoded).unwrap();
+
+// MSG,7: ICAO only
+assert!(output.contains("MSG,7,1,1,4840D6,1,2024/05/21,14:00:00.000,2024/05/21,14:00:00.000"));
+
+// MSG,8: ICAO + signal (0.0 dB since no signal history)
+assert!(output.contains("MSG,8,1,1,4840D6,1,2024/05/21,14:00:00.000,2024/05/21,14:00:00.000"));
+
+// Lines are \r\n terminated
+assert!(output.ends_with("\r\n"));
+
+// Exactly two lines (MSG,7 + MSG,8)
+assert_eq!(output.lines().count(), 2);
+```
+
+Verify RED: `encode_sbs_aircraft` doesn't exist → compilation error. Valid TDD RED.
+
+**GREEN** — Add to `sbs.rs`:
+```rust
+use crate::tracking::Aircraft;
+
+fn sbs_timestamp(now_ms: i64) -> (String, String) {
+    // Convert milliseconds since epoch to YYYY/MM/DD and HH:mm:ss.SSS
+    let secs = now_ms / 1000;
+    let millis = now_ms % 1000;
+    // ... date/time formatting
+    (date_str, time_str)
+}
+
+pub fn encode_sbs_aircraft(a: &Aircraft, now_ms: i64) -> Vec<u8> {
+    let icao = format!("{:06X}", a.addr);
+    let (date, time) = sbs_timestamp(now_ms);
+
+    let mut lines = Vec::new();
+
+    // MSG,7 — ICAO
+    lines.push(format!("MSG,7,1,1,{},1,{},{},{},{},,,,,,,,,,,,,\r\n",
+        icao, date, time, date, time));
+
+    // MSG,8 — ICAO + signal
+    let signal = a.get_signal_db();
+    lines.push(format!("MSG,8,1,1,{},1,{},{},{},{},,,,,,,,,,,{:.1},,,,\r\n",
+        icao, date, time, date, time, signal));
+
+    lines.join("").into_bytes()
+}
+```
+
+**REFACTOR** — None.
+
+### Cycle 7: SBS — altitude (MSG,5)
+
+**RED** — `test_sbs_encode_altitude`
+
+Aircraft with `addr = 0x4840D6`, `baro_alt = 35000`, `baro_alt_valid` updated at `t = 1716300000000`, valid window = `now_ms = 1716300030000` (30s later, within TRACK_STALE 60s):
+
+```
+let encoded = sbs::encode_sbs_aircraft(&aircraft, 1716300030000);
+let output = String::from_utf8(encoded).unwrap();
+
+assert!(output.contains("MSG,5,1,1,4840D6,1,2024/05/21,14:00:30.000,2024/05/21,14:00:30.000,,35000,,,,,,,,,,,"));
+```
+
+And a test for stale altitude — same update time but now at t + 120s (beyond TRACK_STALE):
+```
+let encoded = sbs::encode_sbs_aircraft(&aircraft, 1716300120000);
+let output = String::from_utf8(encoded).unwrap();
+assert!(!output.contains("MSG,5"));  // omitted
+```
+
+Verify RED: asserts `output.contains("MSG,5")` — but MSG,5 line not emitted. FAIL.
+
+**GREEN** — In `encode_sbs_aircraft`, after MSG,7, check `baro_alt_valid.is_valid(now_ms, TRACK_STALE)` and emit MSG,5 if valid. Import `TRACK_STALE` from `crate::tracking::validity`.
+
+**REFACTOR** — None.
+
+### Cycle 8: SBS — callsign (MSG,1)
+
+**RED** — `test_sbs_encode_callsign`
+
+Aircraft with `addr = 0xA43EA2`, `callsign = "BAW123"`, `callsign_valid` updated at `t = now_ms`:
+
+```
+let output = String::from_utf8(sbs::encode_sbs_aircraft(&aircraft, now_ms)).unwrap();
+assert!(output.contains("MSG,1,1,1,A43EA2,1,"));
+assert!(output.contains(",BAW123,"));
+assert!(output.contains(",,,,,,,,,,,,,,")); // after callsign, fields 11-22 mostly empty
+```
+
+Stale callsign test: `now_ms + 120_000` (120s → beyond TRACK_STALE 60s):
+```
+let output = String::from_utf8(sbs::encode_sbs_aircraft(&aircraft, now_ms + 120_000)).unwrap();
+assert!(!output.contains("MSG,1"));
+```
+
+Verify RED: MSG,1 missing → FAIL.
+
+**GREEN** — Check `callsign_valid.is_valid(now_ms, TRACK_STALE)` after MSG,7/MSG,5, emit MSG,1.
+
+**REFACTOR** — Consider extracting the timestamp pair (`date`, `time`) to avoid recomputing it in each line builder.
+
+### Cycle 9: SBS — position (MSG,3) and velocity (MSG,4)
+
+**RED** — `test_sbs_encode_position`
+
+Aircraft with `position_valid` updated, `lat = 51.5`, `lon = -0.5`, `baro_alt = 35000`, `gs = 220.0`, `track = 45.0`, `baro_rate = 0`:
+
+```
+assert!(output.contains("MSG,3,1,1,A43EA2,1,"));
+assert!(output.contains(",35000,"));        // altitude
+assert!(output.contains(",220,"));          // ground speed
+assert!(output.contains(",45,"));           // track
+assert!(output.contains(",51.5,"));         // lat
+assert!(output.contains(",-0.5,"));         // lon
+```
+
+Stale position (validity expired, lat/lon still non-zero but position_valid stale):
+```
+assert!(!output.contains("MSG,3"));
+```
+
+**RED** — `test_sbs_encode_velocity`
+
+Aircraft with `gs_valid`, `gs = 220.0`, `track = 45.0`, `baro_rate = 0`, no position_valid:
+
+```
+assert!(output.contains("MSG,4,1,1,A43EA2,1,"));
+assert!(output.contains(",220,"));
+assert!(output.contains(",45,"));
+assert!(output.contains(",0,"));            // vertical rate
+```
+
+Stale velocity:
+```
+assert!(!output.contains("MSG,4"));
+```
+
+Verify RED: MSG,3/MSG,4 checks fail → FAIL.
+
+**GREEN** — After MSG,7/MSG,5/MSG,1:
+- `position_valid.is_valid(now_ms, TRACK_STALE)` AND `a.lat != 0.0 || a.lon != 0.0` → MSG,3 with lat/lon/alt/gs/track/vrate
+- `gs_valid.is_valid(now_ms, TRACK_STALE)` → MSG,4 with gs/track/vrate
+
+**REFACTOR** — Extract field formatting helpers. The MSG line builder is getting repetitive.
+
+### Cycle 10: Server architecture (per-port channels)
+
+**RED** — `test_network_server_per_port_channels`
+
+```rust
+let (server, beast_rx, hex_rx, sbs_rx) = NetworkServer::new(&[
+    ("0.0.0.0:0", InputParser::Beast),
+    ("0.0.0.0:0", InputParser::Hex),
+    ("0.0.0.0:0", InputParser::Sbs),
+]);
+// Verify three distinct senders/receivers exist
+assert!(!beast_rx.is_closed());
+assert!(!hex_rx.is_closed());
+assert!(!sbs_rx.is_closed());
+```
+
+Verify RED: `NetworkServer::new()` doesn't return 4 items (only returns 2) → compilation error.
+
+**GREEN** — Replace `message_tx: broadcast::Sender<DecodedMessage>` with three `Vec<u8>` channels:
+```rust
+pub struct NetworkServer {
+    bind_addrs: Vec<(String, InputParser)>,
+    pub beast_tx: broadcast::Sender<Vec<u8>>,
+    pub hex_tx: broadcast::Sender<Vec<u8>>,
+    pub sbs_tx: broadcast::Sender<Vec<u8>>,
+    pub incoming_tx: broadcast::Sender<DecodedMessage>,
+}
+```
+
+`new()` returns `(Self, broadcast::Receiver<Vec<u8>>, broadcast::Receiver<Vec<u8>>, broadcast::Receiver<Vec<u8>>)`.
+
+`run()` subscribes each client to the channel matching its `InputParser`:
+- `InputParser::Beast` → `beast_tx.subscribe()`
+- `InputParser::Hex` → `hex_tx.subscribe()`
+- `InputParser::Sbs` → `sbs_tx.subscribe()`
+- `InputParser::None` → skip (no write_loop)
+
+Remove `with_channel` — no longer used.
+
+**REFACTOR** — `ClientConnection::handle` takes `broadcast::Receiver<Vec<u8>>` instead of `broadcast::Receiver<DecodedMessage>`. `write_loop` doesn't change (already writes `Vec<u8>`).
+
+### Cycle 11: Wire main.rs
+
+**RED** — Compilation errors:
+- `net_server.message_tx` no longer exists → `net_server.beast_tx`, `net_server.hex_tx`, `net_server.sbs_tx`
+- `NetworkServer::new()` returns 4 values, not 2
+- `encode_beast_output(&DecodedMessage{...})` → `encode_beast_output(raw_msg, *signal)`
+- `hex::encode_hex_output` not imported
+- `sbs::encode_sbs_aircraft` not imported
+- No periodic SBS task
+
+**GREEN** —
+```rust
+let (mut net_server, _beast_rx, _hex_rx, _sbs_rx) = NetworkServer::new(&[...]);
+let beast_tx = net_server.beast_tx.clone();
+let hex_tx = net_server.hex_tx.clone();
+let sbs_tx = net_server.sbs_tx.clone();
+let incoming_tx = net_server.incoming_tx.clone();
+
+// In message loop:
+let beast_data = encode_beast_output(raw_msg, *signal);
+let _ = beast_tx.send(beast_data);
+let hex_data = hex::encode_hex_output(raw_msg);
+let _ = hex_tx.send(hex_data);
+
+// Periodic SBS task:
+let tracker_sbs = tracker.clone();
+tokio::spawn(async move {
+    let mut tick = tokio::time::interval(Duration::from_secs(1));
+    loop {
+        tick.tick().await;
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH).unwrap_or_default()
+            .as_millis() as i64;
+        for a in tracker_sbs.registry.iter_aircraft() {
+            let sbs_data = sbs::encode_sbs_aircraft(&a, now);
+            let _ = sbs_tx.send(sbs_data);
+        }
+    }
+});
+```
+
+**REFACTOR** — Remove the old `DecodedMessage` wrapper at the Beast send site. The `message_tx` clone is removed.
+
+### Cycle 12: Verify full test suite
+
+Run `cargo test --all-features` — all existing tests plus new tests must pass. Run `cargo clippy -- -D warnings` — zero warnings. Fix any failures before considering implementation complete.
 
 ## Test plan
 
-All new unit tests in `tests/net_compat.rs`. No integration end-to-end tests (no running server).
+All new unit tests in `tests/net_compat.rs`. No integration tests (no running TCP server).
+
+| Test | Cycle | What it proves |
+|------|-------|---------------|
+| `test_beast_standard_format` | 1 | `0x1a` start, type `0x33`, timestamps zeros, RSSI sentinel, payload |
+| `test_beast_byte_stuffing` | 2 | `0x1a` doubled in payload |
+| `test_beast_frame_types` | 3 | 7B→`0x32`, 14B→`0x33` (post-hoc coverage) |
+| `test_beast_rssi_encoding` | 4 | Signal-to-RSSI mapping (zero, negative, normal, clamped) |
+| `test_hex_encode_output` | 5 | Hex encoding with `*`, `;`, `\n` |
+| `test_sbs_encode_icao_signal` | 6 | MSG,7 (ICAO) + MSG,8 (signal), `\r\n` termination |
+| `test_sbs_encode_altitude` | 7 | MSG,5 (altitude valid + stale) |
+| `test_sbs_encode_callsign` | 8 | MSG,1 (callsign valid + stale) |
+| `test_sbs_encode_position` | 9 | MSG,3 (position valid + stale) |
+| `test_sbs_encode_velocity` | 9 | MSG,4 (velocity valid + stale) |
+| `test_network_server_per_port_channels` | 10 | Three channels created, distinct per InputParser |
 
 Existing tests:
 - `test_beast_parse_timestamp` — unaffected
 - `test_sbs_parse_basic`, `test_hex_parse_basic`, `test_hex_parse_empty` — input parsers, unaffected
-- `test_beast_encode_output` — **removed** (replaced by Cycle 2-5 tests)
+- `test_beast_encode_output` — **removed** (tests old MLAT format; replaced by cycles 1-4)
 
 ## Scope boundaries
 
