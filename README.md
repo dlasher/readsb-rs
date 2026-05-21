@@ -12,19 +12,21 @@ This is an **active rewrite in progress** covering the full demodulation, decodi
 |--------|--------|-------|
 | CRC-24 + error correction | ✅ Complete | 8 |
 | Compact Position Reporting | ✅ Complete | 14 |
-| Mode S message parsing | ✅ Complete | 9 |
-| Comm-B / Mode A/C / AIS | ✅ Complete | 6 |
-| Aircraft tracking + registry | ✅ Complete | 12 |
-| I/Q format conversion | ✅ Complete | 3 |
-| 2.4MHz Manchester demodulator | ✅ Complete | 3 |
-| SDR hardware abstraction | ✅ Complete (FFI stub) | — |
-| TCP server + protocol parsers | ✅ Complete | 4 |
-| JSON / globe / heatmap output | ✅ Complete | — |
-| CLI configuration | ✅ Complete | — |
-| Async main loop | ✅ Complete | — |
+| Mode S message parsing | ✅ Complete | 3 |
+| Comm-B / Mode A/C / AIS | ✅ Complete | 8 |
+| Aircraft tracking + registry | ✅ Complete | 24 |
+| I/Q format conversion | ✅ Complete | 6 |
+| 2.4MHz Manchester demodulator | ✅ Complete | (with I/Q) |
+| SDR hardware abstraction | ✅ Complete (FFI stub) | 6 |
+| TCP server + protocol parsers | ✅ Complete | 8 |
+| JSON / globe / heatmap output | ✅ Complete | 4 |
+| CLI configuration | ✅ Complete | 3 |
+| Async main loop | ✅ Complete | 5 |
+| Console output (tiered verbosity) | ✅ Complete | 30 |
+| Runtime stats collection | ✅ Complete | 2 |
 | Docker + CI | ✅ Complete | — |
 
-**Total: 83 tests, all passing**
+**Total: 121 tests, all passing**
 
 ## Architecture
 
