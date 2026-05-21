@@ -261,6 +261,30 @@ fn test_beast_standard_format() {
 }
 
 #[test]
+fn test_read_beast_frames() {
+    use readsb::net::protocols::beast;
+    use std::io::Cursor;
+
+    let mut buf = Vec::new();
+    // Frame 1: 0x32 short
+    buf.push(0x1a); buf.push(0x32);
+    buf.extend_from_slice(&[0u8; 6]);
+    buf.push(0x42);
+    buf.extend_from_slice(&[0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06]);
+    // Frame 2: 0x33 long with stuffed payload
+    buf.push(0x1a); buf.push(0x33);
+    buf.extend_from_slice(&[0u8; 6]);
+    buf.push(0x80);
+    buf.push(0x00); buf.push(0x1a); buf.push(0x1a); buf.extend_from_slice(&[0x84u8; 11]);
+
+    let mut cursor = Cursor::new(&buf);
+    let frames = beast::read_beast_frames(&mut cursor, 10).unwrap();
+    assert_eq!(frames.len(), 2);
+    assert_eq!(frames[0].frame_type, 0x32);
+    assert_eq!(frames[1].frame_type, 0x33);
+}
+
+#[test]
 fn test_beast_stream_analysis() {
     use readsb::net::protocols::beast::{BeastFrame, beast_analysis};
 

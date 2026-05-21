@@ -6,6 +6,38 @@ pub struct BeastFrame {
     pub rssi: u8,
 }
 
+use std::io::{self, Read};
+
+/// Read up to `max_frames` Beast frames from a byte stream.
+/// Scans for 0x1a start markers and returns decoded frames.
+pub fn read_beast_frames<R: Read>(reader: &mut R, max_frames: usize) -> io::Result<Vec<BeastFrame>> {
+    let mut buf = vec![0u8; 65536];
+    let mut frames = Vec::new();
+    let mut offset = 0usize;
+
+    loop {
+        let n = reader.read(&mut buf[offset..])?;
+        if n == 0 { break; }
+        let total = offset + n;
+
+        let mut i = 0usize;
+        while i < total && frames.len() < max_frames {
+            if buf[i] == 0x1a {
+                if let Some(frame) = parse_beast_frame(&buf[i..]) {
+                    frames.push(frame);
+                    i += 1;
+                    while i < total && buf[i] != 0x1a { i += 1; }
+                    continue;
+                }
+            }
+            i += 1;
+        }
+        offset = 0;
+        if frames.len() >= max_frames { break; }
+    }
+    Ok(frames)
+}
+
 /// Encode a BeastFrame as a timestamped record for file storage.
 /// Format: 6B ts | 1B flags | 1B type | 1B payload_len | payload
 pub fn encode_record(frame: &BeastFrame) -> Vec<u8> {
