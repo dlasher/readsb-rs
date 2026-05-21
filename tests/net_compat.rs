@@ -259,3 +259,41 @@ fn test_beast_standard_format() {
     assert_eq!(&encoded[9..23], &data, "Payload must be verbatim at bytes 9-22");
     assert_eq!(encoded.len(), 23, "Frame length must be 1+1+6+1+14 = 23");
 }
+
+#[test]
+fn test_destuff_beast() {
+    use readsb::net::protocols::beast;
+
+    let input = [0x00, 0x84, 0xc3, 0xb3, 0x1d];
+    let output = beast::destuff_beast(&input);
+    assert_eq!(output, input.to_vec(), "No 0x1a bytes → unchanged");
+
+    let input = [0x00, 0x1a, 0x1a, 0x84];
+    let output = beast::destuff_beast(&input);
+    assert_eq!(output, vec![0x00, 0x1a, 0x84], "0x1a 0x1a → 0x1a");
+
+    let input = [0x00, 0x1a, 0x1a, 0x84, 0x1a, 0x1a, 0xc3];
+    let output = beast::destuff_beast(&input);
+    assert_eq!(output, vec![0x00, 0x1a, 0x84, 0x1a, 0xc3], "Multiple stuffed");
+
+    let input = [0x1a, 0x84, 0x1a, 0xc3];
+    let output = beast::destuff_beast(&input);
+    assert_eq!(output, input.to_vec(), "0x1a followed by non-0x1a → unchanged");
+
+    let output = beast::destuff_beast(&[]);
+    assert_eq!(output, vec![] as Vec<u8>, "Empty → empty");
+}
+
+#[test]
+fn test_beast_frame_struct() {
+    use readsb::net::protocols::beast::BeastFrame;
+    let frame = BeastFrame {
+        timestamp: 1716300000000,
+        frame_type: 0x33,
+        payload: vec![0x8D, 0x48, 0x40],
+        rssi: 0xff,
+    };
+    assert_eq!(frame.frame_type, 0x33);
+    assert_eq!(frame.rssi, 0xff);
+    assert_eq!(frame.timestamp, 1716300000000);
+}

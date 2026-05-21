@@ -1,3 +1,26 @@
+/// A decoded Beast protocol frame (input side).
+pub struct BeastFrame {
+    pub timestamp: i64,
+    pub frame_type: u8,
+    pub payload: Vec<u8>,
+    pub rssi: u8,
+}
+
+/// Inverse of escape_beast: collapse 0x1a 0x1a → 0x1a.
+pub fn destuff_beast(data: &[u8]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(data.len());
+    let mut i = 0;
+    while i < data.len() {
+        out.push(data[i]);
+        if data[i] == 0x1a && i + 1 < data.len() && data[i + 1] == 0x1a {
+            i += 2;
+        } else {
+            i += 1;
+        }
+    }
+    out
+}
+
 #[allow(dead_code)] // wired from client read_loop; pending Phase 2 Beast framing
 pub fn parse_timestamp(data: &[u8]) -> Option<i64> {
     if data.len() < 6 { return None; }
