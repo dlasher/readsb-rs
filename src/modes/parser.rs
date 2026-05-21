@@ -8,9 +8,10 @@ pub struct ParseResult {
 }
 
 #[allow(clippy::field_reassign_with_default)]
-pub fn parse_modes_message(msg: &[u8], msgbits: usize, crc_engine: &CrcFixEngine) -> Option<ParseResult> {
+pub fn parse_modes_message(msg: &[u8], msgbits: usize, crc_engine: &CrcFixEngine, signal_level: f64) -> Option<ParseResult> {
     if msgbits != 56 && msgbits != 112 { return None; }
     let mut mm = ModesMessage::default();
+    mm.signal_level = signal_level;
     mm.msgbits = msgbits as i32;
     let nbytes = msgbits / 8;
     let mut padded = [0u8; 14];
@@ -100,7 +101,7 @@ fn decode_surface_position(mm: &mut ModesMessage) {
     mm.cpr_type = CprType::Surface;
     mm.cpr_lat = ((mm.me[1] as u32 & 0x03) << 15) | ((mm.me[2] as u32) << 7) | ((mm.me[3] as u32 & 0xFE) >> 1);
     mm.cpr_lon = ((mm.me[3] as u32 & 0x01) << 16) | ((mm.me[4] as u32) << 8) | (mm.me[5] as u32);
-    mm.cpr_odd = (mm.me[0] & 0x04) != 0; mm.cpr_valid = true;
+    mm.cpr_odd = (mm.me[0] & 0x04) != 0; mm.cpr_valid = true; mm.cpr_decoded = true;
     let mvm = mm.me[6] >> 2;
     if mvm > 0 && mvm < 125 { mm.gs = MOVEMENT_TABLE[mvm as usize]; mm.gs_valid = true; }
     mm.airground = if mm.me[6] & 0x01 != 0 { AirGround::Ground } else { AirGround::Airborne };
@@ -110,7 +111,7 @@ fn decode_airborne_position(mm: &mut ModesMessage) {
     mm.cpr_type = CprType::Airborne;
     mm.cpr_lat = ((mm.me[1] as u32 & 0x03) << 15) | ((mm.me[2] as u32) << 7) | ((mm.me[3] as u32 & 0xFE) >> 1);
     mm.cpr_lon = ((mm.me[3] as u32 & 0x01) << 16) | ((mm.me[4] as u32) << 8) | (mm.me[5] as u32);
-    mm.cpr_odd = (mm.me[0] & 0x04) != 0; mm.cpr_valid = true;
+    mm.cpr_odd = (mm.me[0] & 0x04) != 0; mm.cpr_valid = true; mm.cpr_decoded = true;
     if (mm.me[5] & 0x04) != 0 {
         let raw = (((mm.me[5] as u32 & 0x10) << 4) | ((mm.me[5] as u32 & 0x03) << 8) | (mm.me[6] as u32 & 0xFC)) >> 2;
         mm.geom_alt = (raw as i32 - 1000) * 25; mm.geom_alt_valid = true; mm.geom_alt_unit = AltitudeUnit::Feet;

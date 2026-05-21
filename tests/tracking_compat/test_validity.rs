@@ -13,7 +13,7 @@ fn test_validity_fresh_data() {
 fn test_validity_stale_data() {
     let mut v = DataValidity::new();
     v.update(DataSource::Adsb, 1000);
-    v.update_stale(16000);
+    v.update_stale(61001);
     assert!(v.stale);
 }
 

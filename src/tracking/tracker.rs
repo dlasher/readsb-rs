@@ -1,6 +1,7 @@
 use std::sync::{Arc, RwLock};
 use crate::types::*;
-use crate::cpr::decode_cpr_airborne;
+use crate::cpr::{decode_cpr_airborne, decode_cpr_relative};
+use crate::tracking::haversine_distance;
 use super::{Aircraft, AircraftRegistry, TRACK_EXPIRE};
 
 pub struct Tracker {
@@ -93,9 +94,9 @@ impl Tracker {
     }
 
     fn update_position(&self, a: &mut Aircraft, msg: &ModesMessage, now: i64) {
-        if !msg.cpr_valid {
-            return;
-        }
+        if !msg.cpr_valid { return; }
+
+        // Store raw CPR values for future global pairing
         if msg.cpr_odd {
             a.cpr_odd_lat = msg.cpr_lat;
             a.cpr_odd_lon = msg.cpr_lon;
@@ -103,20 +104,41 @@ impl Tracker {
             a.cpr_even_lat = msg.cpr_lat;
             a.cpr_even_lon = msg.cpr_lon;
         }
-        // Decode when we have both even and odd frames
-        if (a.cpr_even_lat != 0 || a.cpr_even_lon != 0) && (a.cpr_odd_lat != 0 || a.cpr_odd_lon != 0) {
-                if let Some((lat, lon)) = decode_cpr_airborne(
-                    a.cpr_even_lat as i32, a.cpr_even_lon as i32,
-                    a.cpr_odd_lat as i32, a.cpr_odd_lon as i32,
-                    0,
-                ) {
-                    if lat.abs() <= 90.0 && lon.abs() <= 180.0 {
-                        a.lat = lat;
-                        a.lon = lon;
-                        a.position_valid.update(msg.source, now);
-                        a.seen_pos = now;
-                    }
+
+        // Relative decode: instant position from a single frame + receiver position
+        if self.user_lat != 0.0 || self.user_lon != 0.0 {
+            if let Some((lat, lon)) = decode_cpr_relative(
+                self.user_lat, self.user_lon,
+                msg.cpr_lat as i32, msg.cpr_lon as i32,
+                if msg.cpr_odd { 1 } else { 0 },
+                msg.cpr_type == CprType::Surface,
+            ) {
+                let passes_range = self.max_range <= 0.0
+                    || haversine_distance(self.user_lat, self.user_lon, lat, lon) <= self.max_range;
+                if passes_range {
+                    a.lat = lat;
+                    a.lon = lon;
+                    a.position_valid.update(msg.source, now);
+                    a.seen_pos = now;
                 }
+            }
+        }
+
+        // Global decode: more accurate, requires both even and odd frames
+        if (a.cpr_even_lat != 0 || a.cpr_even_lon != 0)
+            && (a.cpr_odd_lat != 0 || a.cpr_odd_lon != 0)
+        {
+            if let Some((lat, lon)) = decode_cpr_airborne(
+                a.cpr_even_lat as i32, a.cpr_even_lon as i32,
+                a.cpr_odd_lat as i32, a.cpr_odd_lon as i32, 0,
+            ) {
+                if lat.abs() <= 90.0 && lon.abs() <= 180.0 {
+                    a.lat = lat;
+                    a.lon = lon;
+                    a.position_valid.update(msg.source, now);
+                    a.seen_pos = now;
+                }
+            }
         }
     }
 
@@ -154,7 +176,11 @@ impl Tracker {
             if msg.baro_rate_valid {
                 a.baro_rate = msg.baro_rate;
             }
+            if msg.signal_level > 0.0 {
+                a.add_signal(msg.signal_level, now);
+            }
             a.messages += 1;
+            a.seen = now;
         }
 
         Some(aircraft)

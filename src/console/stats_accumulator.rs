@@ -18,7 +18,7 @@ pub struct AggregatedStats {
 
 pub struct StatsAccumulator {
     message_timestamps: VecDeque<Instant>,
-    messages_by_type: [u32; 32],
+    df_types: VecDeque<(Instant, u8)>,
     crc_fail_count: u32,
     crc_total_count: u32,
     bitfix_count: u32,
@@ -34,7 +34,7 @@ impl StatsAccumulator {
     pub fn new() -> Self {
         StatsAccumulator {
             message_timestamps: VecDeque::new(),
-            messages_by_type: [0; 32],
+            df_types: VecDeque::new(),
             crc_fail_count: 0,
             crc_total_count: 0,
             bitfix_count: 0,
@@ -50,9 +50,7 @@ impl StatsAccumulator {
     #[allow(clippy::too_many_arguments)]
     pub fn record_message(&mut self, df: u8, crc_ok: bool, crc_corrected: bool, cpr_ok: bool, cpr_local: bool, icao: u32, signal: f64, now: Instant) {
         self.message_timestamps.push_back(now);
-        if df < 32 {
-            self.messages_by_type[df as usize] += 1;
-        }
+        self.df_types.push_back((now, df));
         self.crc_total_count += 1;
         if !crc_ok {
             self.crc_fail_count += 1;
@@ -86,6 +84,9 @@ impl StatsAccumulator {
         while self.signal_readings.front().map(|&(t, _)| t < window_start).unwrap_or(false) {
             self.signal_readings.pop_front();
         }
+        while self.df_types.front().map(|&(t, _)| t < window_start).unwrap_or(false) {
+            self.df_types.pop_front();
+        }
 
         let window_msgs = self.message_timestamps.len();
         let msgs_per_sec = window_msgs as f64 / 60.0;
@@ -107,7 +108,13 @@ impl StatsAccumulator {
             (sum / self.signal_readings.len() as f64, max, min)
         };
 
-        let mut df_dist: Vec<(u8, u32)> = self.messages_by_type.iter()
+        let mut df_counts = [0u32; 32];
+        for &(_, df) in &self.df_types {
+            if (df as usize) < 32 {
+                df_counts[df as usize] += 1;
+            }
+        }
+        let mut df_dist: Vec<(u8, u32)> = df_counts.iter()
             .enumerate()
             .filter(|(_, &c)| c > 0)
             .map(|(i, &c)| (i as u8, c))
@@ -135,7 +142,7 @@ impl StatsAccumulator {
 
     pub fn reset(&mut self) {
         self.message_timestamps.clear();
-        self.messages_by_type = [0; 32];
+        self.df_types.clear();
         self.crc_fail_count = 0;
         self.crc_total_count = 0;
         self.bitfix_count = 0;
@@ -206,5 +213,31 @@ mod tests {
         let stats = acc.aggregate(now + Duration::from_secs(60), 0, now);
         assert_eq!(stats.msgs_per_sec, 0.0);
         assert_eq!(stats.unique_aircraft_hour, 0);
+    }
+
+    #[test]
+    fn test_stats_accumulator_df_windowed() {
+        let mut acc = StatsAccumulator::new();
+        let start = Instant::now();
+
+        // 100 DF17 messages at t=0
+        for _ in 0..100 {
+            acc.record_message(17, true, false, false, false, 0xA43EA2, -12.1, start);
+        }
+
+        // 2 DF11 messages at t=90s (outside the 60s window from t=60 to t=120)
+        let t90 = start + Duration::from_secs(90);
+        acc.record_message(11, true, false, false, false, 0xA6C311, -12.1, t90);
+        acc.record_message(11, true, false, false, false, 0xA6C312, -12.1, t90);
+
+        // Aggregate at t=120s — window = 60s spanning t=60 to t=120
+        let stats = acc.aggregate(start + Duration::from_secs(120), 0, start);
+
+        // DF17 should be windowed out (all at t=0, outside window)
+        assert!(stats.df_distribution.iter().all(|(df, _)| *df != 17),
+            "DF17 should be windowed out");
+        // DF11 should have 2 entries (at t=90, inside window)
+        assert!(stats.df_distribution.iter().any(|(df, count)| *df == 11 && *count == 2),
+            "DF11 should have count 2 in window");
     }
 }

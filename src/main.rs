@@ -73,7 +73,10 @@ async fn main() {
     let initial_level = console_level_from_env();
     CONSOLE_LEVEL.store(level_to_u8(initial_level), Ordering::Relaxed);
 
-    let tracker = Arc::new(Tracker::new());
+    let mut t = Tracker::new();
+    t.user_lat = config.lat.unwrap_or(0.0);
+    t.user_lon = config.lon.unwrap_or(0.0);
+    let tracker = Arc::new(t);
     let crc_engine = Arc::new(CrcFixEngine::new(112));
 
     let (mut net_server, _net_rx) = NetworkServer::new(&[
@@ -155,7 +158,7 @@ async fn main() {
         while let Ok(msg) = incoming_rx.recv().await {
             let msgbits = msg.data.len() * 8;
             if let Some(result) = readsb::modes::parse_modes_message(
-                &msg.data, msgbits, &crc_in,
+                &msg.data, msgbits, &crc_in, 0.0,
             ) {
                 if result.crc_ok {
                     let now = SystemTime::now()
@@ -273,10 +276,10 @@ async fn main() {
                     .as_millis() as i64;
                 let now_monotonic = Instant::now();
 
-                for raw_msg in &messages {
+                for (raw_msg, signal) in &messages {
                     let msgbits = raw_msg.len() * 8;
                     if let Some(result) = readsb::modes::parse_modes_message(
-                        raw_msg, msgbits, &crc_engine,
+                        raw_msg, msgbits, &crc_engine, *signal,
                     ) {
                         if result.crc_ok {
                             tracker.update_from_message(&result.message, now);

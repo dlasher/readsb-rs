@@ -192,9 +192,33 @@ fn test_tracker_remove_stale() {
 
     assert_eq!(tracker.registry.len(), 2);
 
+    // At 61s after creation, aircraft should NOT be expired with 300s TRACK_EXPIRE
     let removed = tracker.remove_stale(61000);
+    assert_eq!(removed, 0);
+    assert_eq!(tracker.registry.len(), 2);
+
+    // At 301001ms (just past 300s expire) they should be removed
+    let removed = tracker.remove_stale(301001);
     assert_eq!(removed, 2);
     assert_eq!(tracker.registry.len(), 0);
+}
+
+#[test]
+fn test_tracker_seen_updates_on_message() {
+    let tracker = Tracker::new();
+    let mut mm = ModesMessage::default();
+    mm.addr = 0x4840D6;
+    mm.addrtype = AddrType::AdsbIcao;
+    mm.source = DataSource::Adsb;
+
+    // First message at t=1000
+    tracker.update_from_message(&mm, 1000);
+
+    // Second message at t=5000 — seen should update to 5000
+    tracker.update_from_message(&mm, 5000);
+    let a = tracker.registry.get(0x4840D6).unwrap();
+    let a_ref = a.read().unwrap();
+    assert_eq!(a_ref.seen, 5000);
 }
 
 #[test]
@@ -261,4 +285,66 @@ fn test_tracker_update_squawk_only() {
     let a = tracker.registry.get(0x4840D6).unwrap();
     let a_ref = a.read().unwrap();
     assert_eq!(a_ref.squawk, 0o1234);
+}
+
+#[test]
+fn test_tracker_signal_level() {
+    let tracker = Tracker::new();
+    let mut mm = ModesMessage::default();
+    mm.addr = 0x4840D6;
+    mm.addrtype = AddrType::AdsbIcao;
+    mm.source = DataSource::Adsb;
+    mm.signal_level = 5000.0;
+
+    tracker.update_from_message(&mm, 1000);
+    let a = tracker.registry.get(0x4840D6).unwrap();
+    let a_ref = a.read().unwrap();
+    assert!(a_ref.get_signal_db() > 0.0);
+}
+
+#[test]
+fn test_tracker_cpr_relative_decode() {
+    let mut tracker = Tracker::new();
+    tracker.user_lat = 48.0;
+    tracker.user_lon = 10.0;
+
+    let mut even = ModesMessage::default();
+    even.addr = 0x4840D6;
+    even.addrtype = AddrType::AdsbIcao;
+    even.source = DataSource::Adsb;
+    even.cpr_valid = true;
+    even.cpr_odd = false;
+    even.cpr_lat = 12345;
+    even.cpr_lon = 67890;
+
+    let result = tracker.update_from_message(&even, 1000);
+    let a = result.unwrap();
+    let a_ref = a.read().unwrap();
+    // Single even frame should resolve position via relative decode
+    assert!(a_ref.lat != 0.0, "lat should be resolved");
+    assert!(a_ref.lon != 0.0, "lon should be resolved");
+}
+
+#[test]
+fn test_tracker_range_filter() {
+    let mut tracker = Tracker::new();
+    tracker.user_lat = 48.0;
+    tracker.user_lon = 10.0;
+    tracker.max_range = 1.0; // 1 meter — impossibly small
+
+    let mut even = ModesMessage::default();
+    even.addr = 0x4840D6;
+    even.addrtype = AddrType::AdsbIcao;
+    even.source = DataSource::Adsb;
+    even.cpr_valid = true;
+    even.cpr_odd = false;
+    even.cpr_lat = 12345;
+    even.cpr_lon = 67890;
+
+    let result = tracker.update_from_message(&even, 1000);
+    let a = result.unwrap();
+    let a_ref = a.read().unwrap();
+    // Position should be filtered out by range check
+    assert_eq!(a_ref.lat, 0.0, "lat should be filtered by range");
+    assert_eq!(a_ref.lon, 0.0, "lon should be filtered by range");
 }

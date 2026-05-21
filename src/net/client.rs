@@ -37,7 +37,7 @@ async fn read_loop(
         match parser {
             InputParser::Beast => {
                 for i in 0..n.saturating_sub(9) {
-                    if buf[i] == 0x10 && buf[i+1] == 0x03 {
+                    if buf[i] == 0x10 && (buf[i+1] == 0x02 || buf[i+1] == 0x03) {
                         let payload = buf[i+8..n].to_vec();
                         let _ = incoming_tx.send(DecodedMessage { data: payload, client_id: 0 });
                         break;

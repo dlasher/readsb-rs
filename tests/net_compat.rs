@@ -35,14 +35,16 @@ fn test_beast_encode_output() {
         client_id: 0,
     };
     let encoded = beast::encode_beast_output(&msg);
-    // Beast format: DLE (0x10) ETX (0x03) + 6-byte timestamp + type + payload + DLE + ETX
+    // Beast MLAT format: DLE STX + 6-byte timestamp + type + payload + DLE ETX
     assert!(!encoded.is_empty(), "Encoded output should not be empty");
     assert_eq!(encoded[0], 0x10, "Should start with DLE");
-    assert_eq!(encoded[1], 0x03, "Should start with DLE ETX");
+    assert_eq!(encoded[1], 0x02, "Should start with DLE STX (MLAT sync)");
     // Last two bytes should be DLE ETX terminator
     assert_eq!(encoded[encoded.len() - 2], 0x10, "Should end with DLE");
     assert_eq!(encoded[encoded.len() - 1], 0x03, "Should end with ETX");
-    // There should be at least 8 bytes: DLE ETX + 6-byte timestamp + type + payload + DLE ETX
+    // Type byte (position 8) should be 0x31 (short, payload ≤ 7 bytes)
+    assert_eq!(encoded[8], 0x31, "Type byte should be 0x31 (short frame) for 4-byte payload");
+    // There should be at least 8 bytes: DLE STX + 6-byte timestamp + type + payload + DLE ETX
     assert!(encoded.len() >= 8 + msg.data.len(),
         "Encoded length should accommodate header + payload + trailer");
 }

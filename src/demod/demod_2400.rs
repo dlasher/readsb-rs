@@ -13,7 +13,7 @@ const MODES_PREAMBLE_SAMPLES: usize = 16;
 const MODES_LONG_MSG_SAMPLES: usize = 224;
 const MODES_SHORT_MSG_SAMPLES: usize = 112;
 
-pub fn demodulate2400(mag: &[u16], mag_len: usize, preamble_threshold: u32) -> Vec<Vec<u8>> {
+pub fn demodulate2400(mag: &[u16], mag_len: usize, preamble_threshold: u32) -> Vec<(Vec<u8>, f64)> {
     let mut messages = Vec::new();
     let mut i = 0;
     while i + MODES_PREAMBLE_SAMPLES + MODES_LONG_MSG_SAMPLES <= mag_len {
@@ -79,10 +79,14 @@ fn check_preamble(mag: &[u16], _threshold: u32) -> bool {
     true
 }
 
-fn decode_message(mag: &[u16], mag_len: usize, bitlen: usize) -> Option<Vec<u8>> {
+fn decode_message(mag: &[u16], mag_len: usize, bitlen: usize) -> Option<(Vec<u8>, f64)> {
     let sample_count = bitlen * 2;
     if mag_len < sample_count { return None; }
     let mut msg = vec![0u8; bitlen.div_ceil(8)];
+
+    // Signal level = average of 4 preamble peak magnitudes
+    let signal = (mag[0] as f64 + mag[2] as f64 + mag[7] as f64 + mag[9] as f64) / 4.0;
+
     let mut phase: i32 = 0;
     for bit in 0..bitlen {
         let sample_idx = MODES_PREAMBLE_SAMPLES + bit * 2;
@@ -102,5 +106,5 @@ fn decode_message(mag: &[u16], mag_len: usize, bitlen: usize) -> Option<Vec<u8>>
         phase += 6;
         if phase >= 30 { phase -= 30; }
     }
-    Some(msg)
+    Some((msg, signal))
 }

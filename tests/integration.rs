@@ -117,10 +117,10 @@ fn test_synthetic_fixture_pipeline() {
 
     let crc = readsb::crc::CrcFixEngine::new(112);
     let decoded: Vec<_> = messages.iter()
-        .filter_map(|msg| {
+        .filter_map(|(msg, signal)| {
             let msgbits = msg.len() * 8;
             if msgbits != 56 && msgbits != 112 { return None; }
-            readsb::modes::parse_modes_message(msg, msgbits, &crc)
+            readsb::modes::parse_modes_message(msg, msgbits, &crc, *signal)
         })
         .collect();
     assert!(!decoded.is_empty(), "Should decode at least one message");

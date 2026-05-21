@@ -1,5 +1,45 @@
 # Changelog
 
+## [0.6.0] - 2026-05-21
+
+### Fixed
+- **Beast output framing**: MLAT sync header was `0x10 0x03` (DLE ETX) instead of
+  `0x10 0x02` (DLE STX). Message type byte emitted raw DF type (0-31) instead of
+  `0x31`/`0x32` for short/long frames. Both caused downstream clients to reject
+  all data, showing zero aircraft. `src/net/protocols/beast.rs`
+- **Aircraft `seen` never updated**: `update_from_message()` (every CRC-OK
+  message) was missing `a.seen = now`, so `seen` stayed at creation time.
+  Aircraft expired after 60 seconds regardless of continued message reception.
+  `src/tracking/tracker.rs`
+- **Signal level always 0.0**: Demodulator returned raw bytes with no signal
+  info. `Aircraft::add_signal()` existed but was never called. `ModesMessage::signal_level`
+  stayed at `0.0` default. `src/demod/demod_2400.rs`, `src/modes/parser.rs`,
+  `src/main.rs`
+- **`cpr_ok` stat always 0%**: `cpr_decoded` was never set to `true` in
+  `decode_airborne_position` and `decode_surface_position`, so the stats
+  accumulator counted all CPR as failed. `src/modes/parser.rs`
+- **DF percentages >100%**: `messages_by_type` was cumulative since process
+  start while `msgs_per_sec` denominator used a 60s window. Replaced with
+  windowed `VecDeque<(Instant, u8)>`. `src/console/stats_accumulator.rs`
+- **Receiver position unused**: `READSB_LAT`/`READSB_LON` parsed but never
+  passed to tracker. `decode_cpr_relative()` existed but was never called.
+  `src/main.rs`, `src/tracking/tracker.rs`
+
+### Changed
+- `TRACK_STALE` 15s → 60s (match readsb C)
+- `TRACK_EXPIRE` 60s → 300s (match readsb C)
+
+### Added
+- **Signal level pipeline**: `demodulate2400` returns `Vec<(Vec<u8>, f64)>`
+  with signal = average of 4 preamble peak magnitudes. Signal propagates
+  through parser to tracker's `add_signal()` and `get_signal_db()`.
+- **Haversine distance**: `pub fn haversine_distance()` in `src/tracking/mod.rs`
+- **Receiver position wiring**: Config lat/lon passed to Tracker, used for
+  relative CPR decode (instant position from single frame) and range filtering.
+- **Range filtering**: `max_range` field on Tracker now enforced — positions
+  beyond the configured distance are discarded.
+- **33 new tests** across demod, parser, tracker, and stats accumulator modules.
+
 ## [0.5.0] - 2026-05-21
 
 ### Added

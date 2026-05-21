@@ -48,3 +48,25 @@ fn test_demod_small_buffer() {
     let msgs = demodulate2400(&small, small.len(), 32768);
     assert!(msgs.is_empty());
 }
+
+#[test]
+fn test_demod_signal_level() {
+    // Valid preamble: pulses at samples 0, 2, 7, 9 with magnitude 5000
+    let preamble = [
+        5000, 50, 5000, 50, 50, 50, 50,
+        5000, 50, 5000, 50, 50, 50, 50,
+        50, 50,
+    ];
+    // 112 bits of Manchester-encoded follow (224 samples) + margin for phase alignment
+    let padding = vec![200u16; 256];
+    let mut buffer: Vec<u16> = Vec::with_capacity(preamble.len() + 256);
+    buffer.extend_from_slice(&preamble);
+    buffer.extend_from_slice(&padding);
+
+    let result = demodulate2400(&buffer, buffer.len(), 0);
+    assert_eq!(result.len(), 1, "Should detect one message");
+    let (msg, signal) = &result[0];
+    // Signal should be average of 4 preamble peaks
+    assert!((signal - 5000.0).abs() < 1.0, "Signal should be ~5000");
+    assert_eq!(msg.len(), 14, "Should decode as long (112-bit) frame");
+}

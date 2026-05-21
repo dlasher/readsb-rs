@@ -1,7 +1,7 @@
 use crate::types::DataSource;
 
-pub const TRACK_STALE: i64 = 15_000;
-pub const TRACK_EXPIRE: i64 = 60_000;
+pub const TRACK_STALE: i64 = 60_000;
+pub const TRACK_EXPIRE: i64 = 300_000;
 pub const TRACK_EXPIRE_JAERO: i64 = 33 * 60_000;
 
 #[derive(Debug, Clone, Copy)]
