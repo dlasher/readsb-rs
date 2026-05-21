@@ -27,6 +27,7 @@ pub struct NetworkServer {
 }
 
 impl NetworkServer {
+    #[allow(clippy::type_complexity)]
     pub fn new(addrs: &[(&str, InputParser)]) -> (Self, broadcast::Receiver<Vec<u8>>, broadcast::Receiver<Vec<u8>>, broadcast::Receiver<Vec<u8>>) {
         let (beast_tx, beast_rx) = broadcast::channel(1024);
         let (hex_tx, hex_rx) = broadcast::channel(1024);

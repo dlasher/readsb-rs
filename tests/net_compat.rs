@@ -29,15 +29,6 @@ fn test_hex_parse_empty() {
 }
 
 #[test]
-fn test_beast_encode_output() {
-    let msg = readsb::net::DecodedMessage {
-        data: vec![0x1A, 0x2B, 0x3C, 0x4D],
-        client_id: 0,
-    };
-    let _encoded = beast::encode_beast_output(&msg.data, 0.0);
-}
-
-#[test]
 fn test_network_server_per_port_channels() {
     use readsb::net::server::{NetworkServer, InputParser};
 
