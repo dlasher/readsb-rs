@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.3.2] - 2026-05-20
+
+### Added
+- **Docker entrypoint script**: `docker-entrypoint.sh` maps environment
+  variables to CLI arguments, enabling Docker Compose/Swarm configuration
+  via env vars (`READSB_DEVICE`, `READSB_DEVICE_TYPE`, `READSB_NET`,
+  `READSB_GAIN`, `READSB_PPM`, `READSB_LAT`, `READSB_LON`, etc.)
+- **Env var configuration**: all CLI flags support `READSB_*` environment
+  variables via clap `env` attribute (works outside Docker too)
+
+### Changed
+- Dockerfile entrypoint changed from binary to `docker-entrypoint.sh`
+
 ## [0.3.1] - 2026-05-20
 
 ### Fixed
