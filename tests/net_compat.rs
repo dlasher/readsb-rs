@@ -38,6 +38,67 @@ fn test_beast_encode_output() {
 }
 
 #[test]
+fn test_sbs_encode_position() {
+    use readsb::net::protocols::sbs;
+    use readsb::tracking::Aircraft;
+    use readsb::types::{AddrType, DataSource};
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    let now_ms = SystemTime::now()
+        .duration_since(UNIX_EPOCH).unwrap_or_default()
+        .as_millis() as i64;
+
+    let mut aircraft = Aircraft::new(0xA43EA2, AddrType::AdsbIcao, now_ms);
+    aircraft.lat = 51.5;
+    aircraft.lon = -0.5;
+    aircraft.baro_alt = 35000;
+    aircraft.gs = 220.0;
+    aircraft.track = 45.0;
+    aircraft.baro_rate = 0;
+    aircraft.position_valid.update(DataSource::Adsb, now_ms);
+
+    let encoded = sbs::encode_sbs_aircraft(&aircraft, now_ms);
+    let output = String::from_utf8(encoded).unwrap();
+    assert!(output.contains("MSG,3,1,1,A43EA2,1,"), "MSG,3 must contain ICAO");
+    assert!(output.contains(",35000,"), "MSG,3 must contain altitude 35000");
+
+    let stale = now_ms + 120_000;
+    let encoded = sbs::encode_sbs_aircraft(&aircraft, stale);
+    let output = String::from_utf8(encoded).unwrap();
+    assert!(!output.contains("MSG,3"), "MSG,3 must NOT be emitted when position is stale");
+}
+
+#[test]
+fn test_sbs_encode_velocity() {
+    use readsb::net::protocols::sbs;
+    use readsb::tracking::Aircraft;
+    use readsb::types::{AddrType, DataSource};
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    let now_ms = SystemTime::now()
+        .duration_since(UNIX_EPOCH).unwrap_or_default()
+        .as_millis() as i64;
+
+    let mut aircraft = Aircraft::new(0xA43EA2, AddrType::AdsbIcao, now_ms);
+    aircraft.gs = 220.0;
+    aircraft.track = 45.0;
+    aircraft.baro_rate = 0;
+    aircraft.gs_valid.update(DataSource::Adsb, now_ms);
+
+    let encoded = sbs::encode_sbs_aircraft(&aircraft, now_ms);
+    let output = String::from_utf8(encoded).unwrap();
+    assert!(output.contains("MSG,4,1,1,A43EA2,1,"), "MSG,4 must contain ICAO");
+    assert!(output.contains(",220,"), "MSG,4 must contain ground speed 220");
+    assert!(output.contains(",45,"), "MSG,4 must contain track 45");
+    assert!(output.contains(",0,"), "MSG,4 must contain vertical rate 0");
+
+    let stale = now_ms + 120_000;
+    let encoded = sbs::encode_sbs_aircraft(&aircraft, stale);
+    let output = String::from_utf8(encoded).unwrap();
+    assert!(!output.contains("MSG,4"), "MSG,4 must NOT be emitted when velocity is stale");
+}
+
+#[test]
 fn test_sbs_encode_callsign() {
     use readsb::net::protocols::sbs;
     use readsb::tracking::Aircraft;

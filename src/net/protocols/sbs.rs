@@ -56,6 +56,29 @@ pub fn encode_sbs_aircraft(a: &Aircraft, now_ms: i64) -> Vec<u8> {
         icao, date, time, date, time
     ));
 
+    if a.position_valid.is_valid(now_ms, TRACK_STALE) && (a.lat != 0.0 || a.lon != 0.0) {
+        lines.push(format!(
+            "MSG,3,1,1,{},1,{},{},{},{},,{alt},,{gs},{track},{lat},{lon},{vrate},,,,,,\r\n",
+            icao, date, time, date, time,
+            alt = a.baro_alt,
+            gs = a.gs,
+            track = a.track,
+            lat = a.lat,
+            lon = a.lon,
+            vrate = a.baro_rate,
+        ));
+    }
+
+    if a.gs_valid.is_valid(now_ms, TRACK_STALE) {
+        lines.push(format!(
+            "MSG,4,1,1,{},1,{},{},{},{},,,,,{gs},{track},,,{vrate},,,,,,,,,\r\n",
+            icao, date, time, date, time,
+            gs = a.gs,
+            track = a.track,
+            vrate = a.baro_rate,
+        ));
+    }
+
     if a.callsign_valid.is_valid(now_ms, TRACK_STALE) && !a.callsign.is_empty() {
         lines.push(format!(
             "MSG,1,1,1,{},1,{},{},{},{},,{cs},,,,,,,,,,,,,,,\r\n",
