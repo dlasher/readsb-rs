@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.3.5] - 2026-05-20
+
+### Fixed
+- **No data sent to network clients**: broadcast channel `message_tx.send()`
+  was never called — decoded messages were tracked internally but never
+  Beast-encoded and published. Clients connected to ports 30002/30003/30005
+  received no data. Now each CRC-OK decode is Beast-encoded and broadcast.
+
 ## [0.3.4] - 2026-05-20
 
 ### Fixed

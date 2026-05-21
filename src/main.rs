@@ -2,7 +2,8 @@ use readsb::config::ReadsbConfig;
 use readsb::tracking::Tracker;
 use readsb::crc::CrcFixEngine;
 use readsb::sdr::{SdrManager, SdrType};
-use readsb::net::NetworkServer;
+use readsb::net::{NetworkServer, DecodedMessage};
+use readsb::net::protocols::beast::encode_beast_output;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::signal;
@@ -26,6 +27,7 @@ async fn main() {
         &format!("{}:{}", config.net_bind_address.as_deref().unwrap_or("0.0.0.0"), config.net_bo_port),
         &format!("{}:{}", config.net_bind_address.as_deref().unwrap_or("0.0.0.0"), config.net_sbs_port),
     ]);
+    let message_tx = net_server.message_tx.clone();
 
     // Determine input format: RTL-TCP sends U8, RTL-SDR USB sends U8, files may vary
     let input_format = match config.iformat.as_deref() {
@@ -129,6 +131,14 @@ async fn main() {
                         if result.crc_ok {
                             tracker.update_from_message(&result.message, now);
                             total_messages += 1;
+                            let beast_data = encode_beast_output(&DecodedMessage {
+                                data: raw_msg.clone(),
+                                client_id: 0,
+                            });
+                            let _ = message_tx.send(DecodedMessage {
+                                data: beast_data,
+                                client_id: 0,
+                            });
                         }
                     }
                 }
