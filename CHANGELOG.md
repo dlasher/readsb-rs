@@ -1,5 +1,38 @@
 # Changelog
 
+## [0.7.0] - 2026-05-21
+
+### Fixed
+- **Beast output format**: Switched from MLAT binary (`0x10 0x02`/`0x10 0x03`
+  wrapped) to standard Beast protocol (`0x1a` escape byte, `0x32`/`0x33` frame
+  types, RSSI byte, `0x1a` byte-stuffing). Downstream clients (ultrafeeder,
+  tar1090) can now parse frames. `src/net/protocols/beast.rs`
+- **All ports shared same output**: Single `message_tx` broadcast channel fed
+  pre-encoded Beast data to every port (RI/BO/SBS). Replaced with three
+  independent channels (`beast_tx`, `hex_tx`, `sbs_tx`) so each port gets
+  its correct format. `src/net/server.rs`, `src/net/client.rs`
+
+### Changed
+- `encode_beast_output` signature from `(&DecodedMessage) -> Vec<u8>` to
+  `(&[u8], f64) -> Vec<u8>`, removing the `DecodedMessage` wrapper
+- `ClientConnection::handle()` takes `broadcast::Receiver<Vec<u8>>` instead
+  of `broadcast::Receiver<DecodedMessage>` for outbound data
+- `NetworkServer::new()` returns 4-tuple (server + 3 format-specific receivers)
+
+### Added
+- **Hex output encoder**: `encode_hex_output(&[u8]) -> Vec<u8>` generates
+  AVR-compatible `*<hex>;\n` lines. Wired to port 30001.
+- **SBS output encoder**: `encode_sbs_aircraft(&Aircraft, i64) -> Vec<u8>`
+  generates Basestation CSV lines for tracked aircraft every second.
+  Emits MSG,7 (ICAO), MSG,8 (signal) always; MSG,5 (altitude), MSG,1
+  (callsign), MSG,3 (position), MSG,4 (velocity) when data is valid.
+  `src/net/protocols/sbs.rs`
+- **`escape_beast()` helper**: `src/net/protocols/beast.rs` — byte-stuffing
+  for standard Beast `0x1a` payload escaping
+- **11 new tests** across Beast/Hex/SBS encoders and server architecture
+- **Periodic SBS task**: 1-second interval iterates tracked aircraft and
+  sends SBS updates on `sbs_tx` channel
+
 ## [0.6.0] - 2026-05-21
 
 ### Fixed
