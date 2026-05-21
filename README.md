@@ -24,7 +24,7 @@ This is an **active rewrite in progress** covering the full demodulation, decodi
 | Async main loop | ✅ Complete | — |
 | Docker + CI | ✅ Complete | — |
 
-**Total: 53 tests, all passing**
+**Total: 83 tests, all passing**
 
 ## Architecture
 
@@ -50,6 +50,54 @@ cargo build --release
 
 # Network only (no SDR)
 ./target/release/readsb --net --net-bo-port 30005 --net-ri-port 30002
+```
+
+## Console Output
+
+Console output is printed to stdout in four verbosity levels, controlled via environment variable or runtime UNIX signals. This mirrors the per-message diagnostic output from the original C readsb.
+
+### Verbosity Levels
+
+| Level | `CONSOLE_LEVEL` | Output |
+|-------|-----------------|--------|
+| **Low** (default) | `low` | One aggregate stats block per minute — msg rate, aircraft count, CRC quality, signal stats, DF distribution, CPR rate, uptime |
+| **Medium** | `medium` | Per-aircraft change summary every N seconds — each line shows only fields that changed since the last report |
+| **High** | `high` | Compact per-message output for each decoded ADS-B message (skips DF11 All-Call and empty frames) |
+| **Max** | `max` | Every CRC-passing message, including DF11/empty frames — same detail as the original C readsb |
+
+### Runtime level cycling
+
+Send `SIGUSR1` to cycle forward (Low → Medium → High → Max → Low) or `SIGUSR2` to cycle backward:
+
+```bash
+docker kill -s SIGUSR1 <container>   # increase verbosity
+docker kill -s SIGUSR2 <container>   # decrease verbosity
+```
+
+### Medium tier interval
+
+`CONSOLE_INTERVAL=10` sets the seconds between per-aircraft summary updates (default `10`).
+
+### Examples
+
+**Low (1 line/minute):**
+```
+[readsb] msgs/s=1845 ac=32 ac1h=47 crc_bad=2.1% bitfix=0.3%
+  sig: -12.3 avg / -8.1 max / -31.2 min dBFS  drops=0
+  df: DF17=78% DF11=12% DF0=5%  cpr_ok=89% uptime=4h12m
+```
+
+**Medium (per-aircraft changes):**
+```
+[A43EA2] alt:27600▲ gs:378 trk:352 callsign:ASA1390  sig:-10.1
+[A5C899] alt:14300▸ pos:46.38,-122.31  sig:-12.2▼
+```
+
+**High (per decoded message):**
+```
+[A43EA2] DF17 vel  gs:378.5 trk:352.3 alt:27675 rate:-2240  sig:-12.1dBFS
+[A6C311] DF17 id   callsign:ASA1390 cat:A3  sig:-24.2dBFS
+[A324B0] DF17 pos  alt:27000 pos:45.34,-121.61  sig:-18.1dBFS
 ```
 
 ## Docker
@@ -111,6 +159,8 @@ All CLI flags can be set via `READSB_*` environment variables:
 | `READSB_IFORMAT` | `--iformat` | — | Input format (`CU8`, `SC16`, `CF32`) |
 | `READSB_DECODE_THREADS` | `--decode-threads` | `2` | Decode thread count |
 | `READSB_AGGRESSIVE` | `--aggressive` | — | Aggressive CRC correction |
+| `CONSOLE_LEVEL` | — | `low` | Console verbosity: `low`, `medium`, `high`, `max` |
+| `CONSOLE_INTERVAL` | — | `10` | Medium tier update interval in seconds |
 | `READSB_DEBUG_NET` | `--debug-net` | — | Network debug logging |
 | `READSB_DEBUG_CPR` | `--debug-cpr` | — | CPR debug logging |
 | `READSB_DEBUG_GARBAGE` | `--debug-garbage` | — | Garbage detection debug |
@@ -131,6 +181,7 @@ Boolean flags (`--net`, `--aggressive`, `--debug-*`, `--quiet`): set the env var
 | Build | Makefile | Cargo (cross-compile friendly) |
 | SDR drivers | Direct FFI to librtlsdr | Async trait (FFI stub) |
 | Main loop | `while(1)` + epoll | `tokio::select!` |
+| Console output | Verbose per-message (always on) | Tiered verbosity with runtime level cycling |
 
 ## Cross-Validation
 
