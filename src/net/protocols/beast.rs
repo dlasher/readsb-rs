@@ -49,6 +49,70 @@ pub fn parse_beast_frame(data: &[u8]) -> Option<BeastFrame> {
     Some(BeastFrame { timestamp, frame_type: data[1], payload, rssi })
 }
 
+/// Protocol-level statistics for a collection of Beast frames.
+pub struct BeastAnalysis {
+    pub total_frames: usize,
+    pub short_frames: usize,
+    pub long_frames: usize,
+    pub stuffing_errors: usize,
+    pub df_counts: [u32; 32],
+    pub max_gap_ms: i64,
+    pub mean_gap_ms: i64,
+    pub gaps_gt_1000ms: usize,
+}
+
+/// Compute protocol statistics from a batch of Beast frames.
+pub fn beast_analysis(frames: &[BeastFrame]) -> BeastAnalysis {
+    let total_frames = frames.len();
+    let mut short_frames = 0usize;
+    let mut long_frames = 0usize;
+    let mut stuffing_errors = 0usize;
+    let mut df_counts = [0u32; 32];
+
+    for frame in frames {
+        if frame.frame_type == 0x32 { short_frames += 1; }
+        else { long_frames += 1; }
+        if !frame.payload.is_empty() {
+            let df = (frame.payload[0] >> 3) as usize;
+            if df < 32 { df_counts[df] += 1; }
+        }
+    }
+
+    let mut max_gap_ms = 0i64;
+    let mut sum_gaps = 0i64;
+    let mut count_gaps = 0;
+    for w in frames.windows(2) {
+        let gap_ms = (w[1].timestamp - w[0].timestamp) / 1000;
+        if gap_ms > max_gap_ms { max_gap_ms = gap_ms; }
+        sum_gaps += gap_ms;
+        count_gaps += 1;
+    }
+    let mean_gap_ms = if count_gaps > 0 { sum_gaps / count_gaps as i64 } else { 0 };
+
+    let gaps_gt_1000ms = frames.windows(2).filter(|w| (w[1].timestamp - w[0].timestamp) / 1000 > 1000).count();
+
+    BeastAnalysis { total_frames, short_frames, long_frames, stuffing_errors, df_counts, max_gap_ms, mean_gap_ms, gaps_gt_1000ms }
+}
+
+/// Format a BeastAnalysis as a vector of "key\tvalue" lines for the compare report.
+pub fn analysis_summary(analysis: &BeastAnalysis) -> Vec<String> {
+    let mut lines = Vec::new();
+    lines.push(format!("Total frames\t{}", analysis.total_frames));
+    lines.push(format!("0x32 (short)\t{} ({:.1}%)", analysis.short_frames,
+        if analysis.total_frames > 0 { analysis.short_frames as f64 / analysis.total_frames as f64 * 100.0 } else { 0.0 }));
+    lines.push(format!("0x33 (long)\t{} ({:.1}%)", analysis.long_frames,
+        if analysis.total_frames > 0 { analysis.long_frames as f64 / analysis.total_frames as f64 * 100.0 } else { 0.0 }));
+    for (df, &count) in analysis.df_counts.iter().enumerate() {
+        if count > 0 {
+            lines.push(format!("DF{}\t{}", df, count));
+        }
+    }
+    lines.push(format!("Max gap (ms)\t{}", analysis.max_gap_ms));
+    lines.push(format!("Mean gap (ms)\t{}", analysis.mean_gap_ms));
+    lines.push(format!("Gaps >1000ms\t{}", analysis.gaps_gt_1000ms));
+    lines
+}
+
 /// Inverse of escape_beast: collapse 0x1a 0x1a → 0x1a.
 pub fn destuff_beast(data: &[u8]) -> Vec<u8> {
     let mut out = Vec::with_capacity(data.len());

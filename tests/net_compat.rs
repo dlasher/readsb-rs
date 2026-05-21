@@ -261,6 +261,32 @@ fn test_beast_standard_format() {
 }
 
 #[test]
+fn test_beast_stream_analysis() {
+    use readsb::net::protocols::beast::{BeastFrame, beast_analysis};
+
+    let frames = vec![
+        BeastFrame { timestamp: 1000000, frame_type: 0x32, payload: vec![0u8; 7], rssi: 0xff },
+        BeastFrame { timestamp: 2000000, frame_type: 0x33, payload: vec![0u8; 14], rssi: 0x42 },
+        BeastFrame { timestamp: 3500000, frame_type: 0x32, payload: vec![0u8; 7], rssi: 0x80 },
+    ];
+
+    let analysis = beast_analysis(&frames);
+    assert_eq!(analysis.total_frames, 3);
+    assert_eq!(analysis.short_frames, 2);
+    assert_eq!(analysis.long_frames, 1);
+    assert_eq!(analysis.mean_gap_ms, 1250);
+    assert_eq!(analysis.max_gap_ms, 1500);
+}
+
+#[test]
+fn test_beast_stream_analysis_empty() {
+    use readsb::net::protocols::beast::beast_analysis;
+    let analysis = beast_analysis(&[]);
+    assert_eq!(analysis.total_frames, 0);
+    assert_eq!(analysis.short_frames, 0);
+}
+
+#[test]
 fn test_beast_record_roundtrip() {
     use readsb::net::protocols::beast::{encode_record, decode_record, BeastFrame};
 
