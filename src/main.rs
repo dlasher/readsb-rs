@@ -104,22 +104,17 @@ async fn main() {
     let crc_in = crc_engine.clone();
     let mut incoming_rx = incoming_tx.subscribe();
     tokio::spawn(async move {
-        loop {
-            match incoming_rx.recv().await {
-                Ok(msg) => {
-                    let msgbits = msg.data.len() * 8;
-                    if let Some(result) = readsb::modes::parse_modes_message(
-                        &msg.data, msgbits, &crc_in,
-                    ) {
-                        if result.crc_ok {
-                            let now = SystemTime::now()
-                                .duration_since(UNIX_EPOCH).unwrap_or_default()
-                                .as_millis() as i64;
-                            tracker_in.update_from_message(&result.message, now);
-                        }
-                    }
+        while let Ok(msg) = incoming_rx.recv().await {
+            let msgbits = msg.data.len() * 8;
+            if let Some(result) = readsb::modes::parse_modes_message(
+                &msg.data, msgbits, &crc_in,
+            ) {
+                if result.crc_ok {
+                    let now = SystemTime::now()
+                        .duration_since(UNIX_EPOCH).unwrap_or_default()
+                        .as_millis() as i64;
+                    tracker_in.update_from_message(&result.message, now);
                 }
-                Err(_) => break,
             }
         }
     });
