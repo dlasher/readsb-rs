@@ -4,6 +4,18 @@ pub fn parse_timestamp(data: &[u8]) -> Option<i64> {
     Some(i64::from_be_bytes([0, 0, data[0], data[1], data[2], data[3], data[4], data[5]]))
 }
 
+/// Escape 0x1a bytes by doubling them (standard Beast byte-stuffing).
+fn escape_beast(data: &[u8]) -> Vec<u8> {
+    let mut escaped = Vec::with_capacity(data.len());
+    for &b in data {
+        escaped.push(b);
+        if b == 0x1a {
+            escaped.push(0x1a);
+        }
+    }
+    escaped
+}
+
 /// Encode raw Mode-S frame bytes in standard Beast binary format (0x1a-escaped).
 ///
 /// Format: 0x1a <type> <6B timestamp> <1B RSSI> <payload>
@@ -26,8 +38,8 @@ pub fn encode_beast_output(data: &[u8], _signal_level: f64) -> Vec<u8> {
     // RSSI: hardcoded 0xff for now (mapping added in Task 4)
     out.push(0xff);
 
-    // Payload (byte-stuffing added in Task 2)
-    out.extend_from_slice(data);
+    // Payload with byte-stuffing
+    out.extend_from_slice(&escape_beast(data));
 
     out
 }

@@ -38,6 +38,26 @@ fn test_beast_encode_output() {
 }
 
 #[test]
+fn test_beast_byte_stuffing() {
+    use readsb::net::protocols::beast;
+    let data = [0x00, 0x1a, 0x84, 0x1a, 0xc3, 0xb3, 0x1d];
+    let encoded = beast::encode_beast_output(&data, 0.0);
+
+    assert_eq!(encoded.len(), 18, "Expected 9 header + 9 stuffed payload (7 raw + 2 stuffing)");
+    // Frame: 0x1a(1) + 0x32(1) + 6x0 + 0xff = 9 header
+    // Stuffed: 0x00 + 0x1a 0x1a + 0x84 + 0x1a 0x1a + 0xc3 + 0xb3 + 0x1d = 9 payload
+    assert_eq!(encoded[9], 0x00);
+    assert_eq!(encoded[10], 0x1a);
+    assert_eq!(encoded[11], 0x1a); // stuffed copy
+    assert_eq!(encoded[12], 0x84);
+    assert_eq!(encoded[13], 0x1a);
+    assert_eq!(encoded[14], 0x1a); // stuffed copy
+    assert_eq!(encoded[15], 0xc3);
+    assert_eq!(encoded[16], 0xb3);
+    assert_eq!(encoded[17], 0x1d);
+}
+
+#[test]
 fn test_beast_standard_format() {
     use readsb::net::protocols::beast;
     let data = [
