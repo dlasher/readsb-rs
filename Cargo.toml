@@ -14,6 +14,7 @@ rusb = "0.9.4"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["full"] }
+futures = "0.3"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
@@ -23,4 +24,9 @@ criterion = "0.5"
 [[bench]]
 name = "crc_bench"
 path = "benches/crc_bench.rs"
+harness = false
+
+[[bench]]
+name = "demod_bench"
+path = "benches/demod_bench.rs"
 harness = false

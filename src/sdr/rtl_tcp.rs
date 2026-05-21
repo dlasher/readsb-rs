@@ -71,11 +71,14 @@ impl RtlTcpClient {
                             }
                             self.stream = Some(stream);
                             self.connected = true;
-                            // Configure the server
+                            // Configure the server (50ms between commands for rate limiting)
                             self.send_command(RTLTCP_SET_FREQ, self.freq_hz).await?;
+                            tokio::time::sleep(Duration::from_millis(50)).await;
                             self.send_command(RTLTCP_SET_SAMPLE_RATE, self.sample_rate).await?;
+                            tokio::time::sleep(Duration::from_millis(50)).await;
                             let gain_tenths = (self.gain_db * 10.0) as i32;
                             self.send_command(RTLTCP_SET_GAIN_MODE, 1).await?;
+                            tokio::time::sleep(Duration::from_millis(50)).await;
                             self.send_command(RTLTCP_SET_GAIN, gain_tenths as u32).await?;
                             return Ok(());
                         }

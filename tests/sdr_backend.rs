@@ -32,6 +32,33 @@ fn start_mock_rtl_tcp_server(port: u16) -> std::thread::JoinHandle<()> {
 }
 
 #[tokio::test]
+async fn test_mock_device_read_samples() {
+    let canned = b"\x00\x08\x00\x00\x00\x00\x00\x08".to_vec();
+    let mut manager = SdrManager::new();
+    let result = manager.open(SdrType::Mock(canned.clone())).await;
+    assert!(result.is_ok(), "Mock device should open");
+
+    let mut buf = vec![0u8; 8];
+    let n = manager.read_samples(&mut buf).await.expect("read_samples should return Ok");
+    assert_eq!(n, 8);
+    assert_eq!(&buf[..], &canned[..]);
+}
+
+#[tokio::test]
+async fn test_rtlsdr_read_no_panic() {
+    let mut manager = SdrManager::new();
+    let result = manager.open(SdrType::RtlSdr(0)).await;
+    assert!(result.is_ok(), "RtlSdr device should open");
+
+    let mut buf = vec![0u8; 1024];
+    let read_result = manager.read_samples(&mut buf).await;
+    // Should return an error (no real USB device), not panic
+    assert!(read_result.is_err(), "read_samples without HW should return Err, not panic");
+    let err = read_result.unwrap_err();
+    assert_eq!(err.kind(), std::io::ErrorKind::Unsupported);
+}
+
+#[tokio::test]
 async fn sdr_manager_creates_ifile() {
     let mut manager = SdrManager::new();
     

@@ -1,1 +1,3 @@
-target/\n*.o\n.DS_Store
+target/
+*.o
+.DS_Store

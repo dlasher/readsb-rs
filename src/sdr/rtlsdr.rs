@@ -2,37 +2,12 @@ use async_trait::async_trait;
 use std::io;
 use super::traits::SdrDevice;
 
-#[repr(packed)]
-pub struct DongleInfo {
-    pub magic: [u8; 4],
-    pub tuner_type: u32,
-    pub tuner_gain_count: u32,
-}
-
-#[repr(packed)]
-pub struct RtltcpCommand {
-    pub cmd: u8,
-    pub param: u32,
-}
-
-pub const RTLTCP_SET_FREQ: u8 = 0x01;
-pub const RTLTCP_SET_SAMPLE_RATE: u8 = 0x02;
-pub const RTLTCP_SET_GAIN_MODE: u8 = 0x03;
-pub const RTLTCP_SET_GAIN: u8 = 0x04;
-pub const RTLTCP_SET_FREQ_CORR: u8 = 0x05;
-pub const RTLTCP_SET_IF_GAIN: u8 = 0x06;
-pub const RTLTCP_SET_DIRECT_SAMP: u8 = 0x09;
-pub const RTLTCP_SET_OFFSET_TUNING: u8 = 0x0A;
-pub const RTLTCP_SET_BIAS_TEE: u8 = 0x0E;
-
 #[allow(dead_code)]
 pub struct RtlSdrDevice {
     device_index: u32,
     freq_hz: u32,
     gain_db: f32,
     sample_rate: u32,
-    host: Option<String>,
-    port: Option<u16>,
 }
 
 impl RtlSdrDevice {
@@ -42,43 +17,15 @@ impl RtlSdrDevice {
             freq_hz: 1090000000,
             gain_db: 49.6,
             sample_rate: 2400000,
-            host: None,
-            port: None,
         }
-    }
-
-    pub fn with_rtl_tcp(host: String, port: u16) -> Self {
-        RtlSdrDevice {
-            device_index: 0,
-            freq_hz: 1090000000,
-            gain_db: 49.6,
-            sample_rate: 2400000,
-            host: Some(host),
-            port: Some(port),
-        }
-    }
-
-    pub fn set_direct_samp(&mut self, _mode: u8) {
-    }
-
-    pub fn set_offset_tune(&mut self, _enable: bool) {
-    }
-
-    pub fn set_bias_tee(&mut self, _enable: bool) {
     }
 }
 
 #[async_trait]
 impl SdrDevice for RtlSdrDevice {
     async fn open(&mut self) -> io::Result<()> {
-        if self.host.is_some() {
-            // RTL-TCP mode - will connect during read_samples
-            Ok(())
-        } else {
-            // USB mode - placeholder for FFI bindings
-            // For testing, just succeed without actual hardware
-            Ok(())
-        }
+        // USB mode - placeholder for FFI bindings
+        Ok(())
     }
 
     async fn close(&mut self) -> io::Result<()> {
@@ -101,22 +48,62 @@ impl SdrDevice for RtlSdrDevice {
     }
 
     async fn read_samples(&mut self, _buf: &mut [u8]) -> io::Result<usize> {
-        if self.host.is_some() {
-            // RTL-TCP mode - not yet implemented
-            unimplemented!("RTL-TCP sample reading not implemented yet")
-        } else {
-            // USB mode - placeholder for FFI bindings
-            // Would use rtl_sdr_rs::read_sync here
-            unimplemented!("USB sample reading not implemented yet")
-        }
+        Err(io::Error::new(io::ErrorKind::Unsupported, "USB sample reading not implemented"))
     }
 
     fn name(&self) -> &str {
-        if self.host.is_some() {
-            "rtl_tcp"
-        } else {
-            "rtlsdr"
-        }
+        "rtlsdr"
+    }
+}
+
+/// Mock SDR device that returns canned sample data.
+/// Used for testing without hardware.
+#[allow(dead_code)]
+pub struct MockSdrDevice {
+    data: Vec<u8>,
+    pos: usize,
+}
+
+impl MockSdrDevice {
+    pub fn new(data: Vec<u8>) -> Self {
+        MockSdrDevice { data, pos: 0 }
+    }
+}
+
+#[async_trait]
+impl SdrDevice for MockSdrDevice {
+    async fn open(&mut self) -> io::Result<()> {
+        self.pos = 0;
+        Ok(())
+    }
+
+    async fn close(&mut self) -> io::Result<()> {
+        self.pos = 0;
+        Ok(())
+    }
+
+    async fn set_freq(&mut self, _freq_hz: u32) -> io::Result<()> {
+        Ok(())
+    }
+
+    async fn set_gain(&mut self, _gain_db: f32) -> io::Result<()> {
+        Ok(())
+    }
+
+    async fn set_sample_rate(&mut self, _rate_hz: u32) -> io::Result<()> {
+        Ok(())
+    }
+
+    async fn read_samples(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        let remaining = self.data.len() - self.pos;
+        let to_read = buf.len().min(remaining);
+        buf[..to_read].copy_from_slice(&self.data[self.pos..self.pos + to_read]);
+        self.pos += to_read;
+        Ok(to_read)
+    }
+
+    fn name(&self) -> &str {
+        "mock"
     }
 }
 

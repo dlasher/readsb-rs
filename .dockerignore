@@ -1,3 +1,7 @@
 target/
 .git/
 tests/
+examples/
+benches/
+docs/
+test_fixtures/

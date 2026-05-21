@@ -27,3 +27,22 @@ fn test_hex_parse_basic() {
 fn test_hex_parse_empty() {
     assert!(hex::parse_line("").is_none());
 }
+
+#[test]
+fn test_beast_encode_output() {
+    let msg = readsb::net::DecodedMessage {
+        data: vec![0x1A, 0x2B, 0x3C, 0x4D],
+        client_id: 0,
+    };
+    let encoded = beast::encode_beast_output(&msg);
+    // Beast format: DLE (0x10) ETX (0x03) + 6-byte timestamp + type + payload + DLE + ETX
+    assert!(!encoded.is_empty(), "Encoded output should not be empty");
+    assert_eq!(encoded[0], 0x10, "Should start with DLE");
+    assert_eq!(encoded[1], 0x03, "Should start with DLE ETX");
+    // Last two bytes should be DLE ETX terminator
+    assert_eq!(encoded[encoded.len() - 2], 0x10, "Should end with DLE");
+    assert_eq!(encoded[encoded.len() - 1], 0x03, "Should end with ETX");
+    // There should be at least 8 bytes: DLE ETX + 6-byte timestamp + type + payload + DLE ETX
+    assert!(encoded.len() >= 8 + msg.data.len(),
+        "Encoded length should accommodate header + payload + trailer");
+}

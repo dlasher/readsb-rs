@@ -1,13 +1,14 @@
 use std::io;
 use super::traits::SdrDevice;
 use super::ifile::IFileDevice;
-use super::rtlsdr::RtlSdrDevice;
+use super::rtlsdr::{MockSdrDevice, RtlSdrDevice};
 use super::rtl_tcp::RtlTcpClient;
 
 pub enum SdrType {
     IFile(String),
     RtlSdr(u32),
     RtlTcp(String, u16),
+    Mock(Vec<u8>),
 }
 
 pub struct SdrManager {
@@ -24,6 +25,7 @@ pub fn create_device(sdr_type: SdrType) -> Box<dyn SdrDevice> {
             SdrType::IFile(path) => Box::new(IFileDevice::new(path)),
             SdrType::RtlSdr(idx) => Box::new(RtlSdrDevice::new(idx)),
             SdrType::RtlTcp(host, port) => Box::new(RtlTcpClient::new(host, port)),
+            SdrType::Mock(data) => Box::new(MockSdrDevice::new(data)),
         }
     }
 
