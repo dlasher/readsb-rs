@@ -38,6 +38,24 @@ fn test_beast_encode_output() {
 }
 
 #[test]
+fn test_sbs_encode_icao_signal() {
+    use readsb::net::protocols::sbs;
+    use readsb::tracking::Aircraft;
+    use readsb::types::AddrType;
+
+    let aircraft = Aircraft::new(0x4840D6, AddrType::AdsbIcao, 1716300000000);
+    let encoded = sbs::encode_sbs_aircraft(&aircraft, 1716300000000);
+    let output = String::from_utf8(encoded).unwrap();
+
+    assert!(output.contains("MSG,7,1,1,4840D6,1,2024/05/21,14:00:00.000,2024/05/21,14:00:00.000"),
+        "MSG,7 must contain ICAO and timestamp");
+    assert!(output.contains("MSG,8,1,1,4840D6,1,2024/05/21,14:00:00.000,2024/05/21,14:00:00.000"),
+        "MSG,8 must contain ICAO and timestamp");
+    assert!(output.ends_with("\r\n"), "Must end with CRLF");
+    assert_eq!(output.lines().count(), 2, "Expected exactly 2 MSG lines");
+}
+
+#[test]
 fn test_hex_encode_output() {
     use readsb::net::protocols::hex;
 
