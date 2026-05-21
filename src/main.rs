@@ -33,11 +33,11 @@ async fn main() {
         Some("SC16") => readsb::demod::InputFormat::SC16Q11,
         Some("CF32") => readsb::demod::InputFormat::F32,
         _ => {
-            // Default: if using RTL-TCP, use U8; otherwise SC16Q11 for other sources
-            if config.device.as_deref().map_or(false, |d| d.starts_with("rtl_tcp:")) {
-                readsb::demod::InputFormat::U8
-            } else {
+            // Live SDR (USB or RTL-TCP) outputs U8; file input defaults to SC16Q11
+            if config.ifile.is_some() {
                 readsb::demod::InputFormat::SC16Q11
+            } else {
+                readsb::demod::InputFormat::U8
             }
         }
     };
