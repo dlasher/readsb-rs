@@ -261,6 +261,54 @@ fn test_beast_standard_format() {
 }
 
 #[test]
+fn test_parse_beast_frame_basic() {
+    use readsb::net::protocols::beast;
+    let timestamp: i64 = 1716300000000;
+    let ts_bytes = &timestamp.to_be_bytes()[2..];
+    let mut buf = Vec::new();
+    buf.push(0x1a);
+    buf.push(0x33);
+    buf.extend_from_slice(ts_bytes);
+    buf.push(0xff);
+    buf.extend_from_slice(&[0x8D, 0x48, 0x40, 0xD6, 0x20, 0x2C, 0xC3]);
+
+    let frame = beast::parse_beast_frame(&buf);
+    assert!(frame.is_some(), "Should parse valid frame");
+    let frame = frame.unwrap();
+    assert_eq!(frame.frame_type, 0x33);
+    assert_eq!(frame.rssi, 0xff);
+    assert_eq!(frame.timestamp, timestamp);
+}
+
+#[test]
+fn test_parse_beast_frame_with_stuffing() {
+    use readsb::net::protocols::beast;
+    let mut buf = Vec::new();
+    buf.push(0x1a); buf.push(0x32);
+    buf.extend_from_slice(&[0u8; 6]);
+    buf.push(0x42);
+    buf.extend_from_slice(&[0x00, 0x1a, 0x1a, 0x84]);
+
+    let frame = beast::parse_beast_frame(&buf);
+    assert!(frame.is_some(), "Should parse stuffed frame");
+    let frame = frame.unwrap();
+    assert_eq!(frame.payload, vec![0x00, 0x1a, 0x84], "Payload de-stuffed");
+}
+
+#[test]
+fn test_parse_beast_frame_too_short() {
+    use readsb::net::protocols::beast;
+    assert!(beast::parse_beast_frame(&[0x1a]).is_none());
+    assert!(beast::parse_beast_frame(&[0x1a, 0x32]).is_none());
+}
+
+#[test]
+fn test_parse_beast_frame_wrong_start() {
+    use readsb::net::protocols::beast;
+    assert!(beast::parse_beast_frame(&[0x00, 0x1a, 0x32]).is_none());
+}
+
+#[test]
 fn test_destuff_beast() {
     use readsb::net::protocols::beast;
 

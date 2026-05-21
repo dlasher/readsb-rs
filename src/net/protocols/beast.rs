@@ -6,6 +6,23 @@ pub struct BeastFrame {
     pub rssi: u8,
 }
 
+/// Parse a single Beast frame from a buffer starting at offset 0.
+/// Format: 0x1a <type> <6B timestamp> <1B RSSI> <payload (byte-stuffed)>
+pub fn parse_beast_frame(data: &[u8]) -> Option<BeastFrame> {
+    if data.len() < 9 { return None; }
+    if data[0] != 0x1a { return None; }
+    if data[1] != 0x32 && data[1] != 0x33 { return None; }
+
+    let ts_bytes = &data[2..8];
+    let timestamp = i64::from_be_bytes([0, 0, ts_bytes[0], ts_bytes[1], ts_bytes[2], ts_bytes[3], ts_bytes[4], ts_bytes[5]]);
+    let rssi = data[8];
+    let raw_payload = &data[9..];
+    if raw_payload.is_empty() { return None; }
+
+    let payload = destuff_beast(raw_payload);
+    Some(BeastFrame { timestamp, frame_type: data[1], payload, rssi })
+}
+
 /// Inverse of escape_beast: collapse 0x1a 0x1a → 0x1a.
 pub fn destuff_beast(data: &[u8]) -> Vec<u8> {
     let mut out = Vec::with_capacity(data.len());
