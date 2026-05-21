@@ -2,10 +2,13 @@ use readsb::config::ReadsbConfig;
 use readsb::tracking::Tracker;
 use readsb::crc::CrcFixEngine;
 use readsb::sdr::{SdrManager, SdrType};
+use readsb::stats::Stats;
 use readsb::net::{NetworkServer, DecodedMessage};
+use readsb::net::server::InputParser;
 use readsb::net::protocols::beast::encode_beast_output;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::signal;
 use tracing::{info, warn};
 use tracing_subscriber::EnvFilter;
@@ -23,11 +26,12 @@ async fn main() {
     let crc_engine = Arc::new(CrcFixEngine::new(112));
 
     let (mut net_server, _net_rx) = NetworkServer::new(&[
-        &format!("{}:{}", config.net_bind_address.as_deref().unwrap_or("0.0.0.0"), config.net_ri_port),
-        &format!("{}:{}", config.net_bind_address.as_deref().unwrap_or("0.0.0.0"), config.net_bo_port),
-        &format!("{}:{}", config.net_bind_address.as_deref().unwrap_or("0.0.0.0"), config.net_sbs_port),
+        (&format!("{}:{}", config.net_bind_address.as_deref().unwrap_or("0.0.0.0"), config.net_ri_port), InputParser::Hex),
+        (&format!("{}:{}", config.net_bind_address.as_deref().unwrap_or("0.0.0.0"), config.net_bo_port), InputParser::Beast),
+        (&format!("{}:{}", config.net_bind_address.as_deref().unwrap_or("0.0.0.0"), config.net_sbs_port), InputParser::Sbs),
     ]);
     let message_tx = net_server.message_tx.clone();
+    let incoming_tx = net_server.incoming_tx.clone();
 
     // Determine input format: RTL-TCP sends U8, RTL-SDR USB sends U8, files may vary
     let input_format = match config.iformat.as_deref() {
@@ -80,6 +84,13 @@ async fn main() {
     }
     info!("SDR device opened successfully");
 
+    if let Some(gain) = config.gain {
+        info!("Setting gain to {} dB", gain);
+        if let Err(e) = sdr.set_gain(gain).await {
+            warn!("Failed to set gain: {}", e);
+        }
+    }
+
     let mut sample_buffer = vec![0u8; 2 * 2400000];
     let mut magnitude_buffer = vec![0u16; 2400000];
 
@@ -88,6 +99,69 @@ async fn main() {
             warn!("Network server error: {}", e);
         }
     });
+
+    let tracker_in = tracker.clone();
+    let crc_in = crc_engine.clone();
+    let mut incoming_rx = incoming_tx.subscribe();
+    tokio::spawn(async move {
+        loop {
+            match incoming_rx.recv().await {
+                Ok(msg) => {
+                    let msgbits = msg.data.len() * 8;
+                    if let Some(result) = readsb::modes::parse_modes_message(
+                        &msg.data, msgbits, &crc_in,
+                    ) {
+                        if result.crc_ok {
+                            let now = SystemTime::now()
+                                .duration_since(UNIX_EPOCH).unwrap_or_default()
+                                .as_millis() as i64;
+                            tracker_in.update_from_message(&result.message, now);
+                        }
+                    }
+                }
+                Err(_) => break,
+            }
+        }
+    });
+
+    // Periodic JSON output
+    if let Some(ref json_dir) = config.json_dir {
+        let dir = json_dir.clone();
+        let tracker_json = tracker.clone();
+        let interval = config.json_reliable.unwrap_or(1).max(1) as u64;
+        let with_globe = config.json_globe_index;
+        tokio::spawn(async move {
+            let mut tick = tokio::time::interval(Duration::from_millis(interval * 1000));
+            loop {
+                tick.tick().await;
+                let now = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_millis() as i64;
+                let aircraft = tracker_json.registry.iter_aircraft();
+                let json = readsb::output::json::generate_aircraft_json(aircraft, now);
+                let path = format!("{}/aircraft.json", dir);
+                if let Err(e) = std::fs::write(&path, json) {
+                    warn!("Failed to write aircraft.json: {}", e);
+                }
+                if with_globe {
+                    let aircraft = tracker_json.registry.iter_aircraft();
+                    for a in &aircraft {
+                        if a.lat != 0.0 || a.lon != 0.0 {
+                            let idx = readsb::output::globe::globe_index(a.lat, a.lon);
+                            let gpath = format!("{}/globe_{}.json", dir, idx);
+                            let entry = readsb::output::json::generate_aircraft_json(
+                                vec![a.clone()], now
+                            );
+                            if let Err(e) = std::fs::write(&gpath, entry) {
+                                warn!("Failed to write globe JSON: {}", e);
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    }
 
     info!("Entering main processing loop");
 
@@ -104,6 +178,8 @@ async fn main() {
 
     let mut total_messages: u64 = 0;
     let mut iter_count: u64 = 0;
+    let mut stats = Stats::new();
+    let mut stats_printed_at = SystemTime::now();
 
     while !shutdown.load(Ordering::Relaxed) {
         let result = sdr.read_samples(&mut sample_buffer).await;
@@ -119,6 +195,10 @@ async fn main() {
                 let messages = readsb::demod::demodulate2400(
                     &magnitude_buffer, count, 0,
                 );
+                if let Some((ac_code, _spi)) = readsb::demod::demodulate_ac(&magnitude_buffer) {
+                    let _ = ac_code;
+                    // Full Mode A/C tracking pending: associate squawk with aircraft
+                }
                 let now = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .unwrap_or_default()
@@ -143,12 +223,20 @@ async fn main() {
                     }
                 }
                 tracker.remove_stale(now);
+                stats.samples_processed += count as u64;
+                stats.messages_total = total_messages as u32;
+                stats.unique_aircraft = tracker.registry.len() as u32;
                 if iter_count == 1 || iter_count.is_multiple_of(100) {
                     let candidates = messages.len();
                     let len = tracker.registry.len();
                     let tag = if iter_count == 1 { "FIRST" } else { "iter" };
                     println!("[{} {} bytes={} mag={} candidates={} decodes={} aircraft={}]",
                         tag, iter_count, n, count, candidates, total_messages, len);
+                    if stats_printed_at.elapsed().unwrap_or_default().as_secs() >= 60 {
+                        info!("Stats: {} msgs, {} a/c, {} samples",
+                            stats.messages_total, stats.unique_aircraft, stats.samples_processed);
+                        stats_printed_at = SystemTime::now();
+                    }
                 }
             }
             Ok(0) => {

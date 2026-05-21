@@ -15,10 +15,13 @@ pub struct ReadsbConfig {
     pub ppm: Option<i32>,
 
     #[arg(long, env = "READSB_RTLTCP_DIRECT_SAMP")]
+    #[allow(dead_code)]
     pub rtltcp_direct_samp: Option<u8>,
     #[arg(long, env = "READSB_RTLTCP_OFFSET_TUNE")]
+    #[allow(dead_code)]
     pub rtltcp_offset_tune: Option<bool>,
     #[arg(long, env = "READSB_RTLTCP_BIAS_TEE")]
+    #[allow(dead_code)]
     pub rtltcp_bias_tee: Option<bool>,
 
     #[arg(long, env = "READSB_NET")]
@@ -39,6 +42,7 @@ pub struct ReadsbConfig {
     #[arg(long, env = "READSB_JSON_RELIABLE")]
     pub json_reliable: Option<i32>,
     #[arg(long, env = "READSB_JSON_TRACE_INTERVAL")]
+    #[allow(dead_code)] // pending Phase 5
     pub json_trace_interval: Option<i64>,
 
     #[arg(long, env = "READSB_LAT")]
@@ -46,6 +50,7 @@ pub struct ReadsbConfig {
     #[arg(long, env = "READSB_LON")]
     pub lon: Option<f64>,
     #[arg(long, env = "READSB_MAX_RANGE")]
+    #[allow(dead_code)] // pending range filtering feature
     pub max_range: Option<f64>,
 
     #[arg(long, env = "READSB_DEBUG_NET")]

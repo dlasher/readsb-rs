@@ -1,3 +1,4 @@
+#[allow(dead_code)] // wired from client read_loop; pending Phase 2 inbound parsing
 pub struct SbsMessage {
     pub hex_ident: String,
     pub altitude: i32,

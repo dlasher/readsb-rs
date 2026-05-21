@@ -93,3 +93,11 @@ async fn sdr_manager_creates_rtl_tcp() {
     
     assert!(result.is_ok(), "RtlTcp device should be created");
 }
+
+#[tokio::test]
+async fn test_mock_device_set_gain() {
+    let mut manager = SdrManager::new();
+    manager.open(SdrType::Mock(vec![])).await.unwrap();
+    let result = manager.set_gain(42.0).await;
+    assert!(result.is_ok(), "set_gain should succeed on mock device");
+}

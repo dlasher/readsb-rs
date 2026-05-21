@@ -55,3 +55,22 @@ fn test_registry_concurrent_access() {
     }
     assert_eq!(reg.len(), 10);
 }
+
+#[test]
+fn test_registry_iter_aircraft_empty() {
+    let reg = AircraftRegistry::new();
+    let result = reg.iter_aircraft();
+    assert!(result.is_empty(), "Empty registry should return empty vec");
+}
+
+#[test]
+fn test_registry_iter_aircraft_returns_all() {
+    let reg = AircraftRegistry::new();
+    reg.get_or_create(0x4840D6, 1000, AddrType::AdsbIcao);
+    reg.get_or_create(0x123456, 1000, AddrType::AdsbIcao);
+    let result = reg.iter_aircraft();
+    assert_eq!(result.len(), 2, "Should return both aircraft");
+    let addrs: Vec<u32> = result.iter().map(|a| a.addr).collect();
+    assert!(addrs.contains(&0x4840D6));
+    assert!(addrs.contains(&0x123456));
+}

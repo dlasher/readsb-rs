@@ -1,5 +1,6 @@
 use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use readsb::net::server::InputParser;
 
 /// Helper: find an available port
 fn find_port() -> u16 {
@@ -21,7 +22,7 @@ async fn test_multi_listener_accept() {
     let addr1 = format!("127.0.0.1:{}", port1);
     let addr2 = format!("127.0.0.1:{}", port2);
 
-    let (mut server, _rx) = readsb::net::NetworkServer::new(&[&addr1, &addr2]);
+    let (mut server, _rx) = readsb::net::NetworkServer::new(&[(&addr1, InputParser::None), (&addr2, InputParser::None)]);
 
     let jh = tokio::spawn(async move {
         server.run().await.ok();
@@ -70,7 +71,7 @@ async fn test_client_receives_broadcast() {
     let port = find_port();
     let addr = format!("127.0.0.1:{}", port);
 
-    let (mut server, _rx) = readsb::net::NetworkServer::new(&[&addr]);
+    let (mut server, _rx) = readsb::net::NetworkServer::new(&[(&addr, InputParser::None)]);
     let tx = server.message_tx.clone();
 
     let jh = tokio::spawn(async move {
@@ -104,4 +105,15 @@ async fn test_client_receives_broadcast() {
     }
 
     jh.abort();
+}
+
+#[test]
+fn test_input_parser_variants() {
+    use readsb::net::server::InputParser;
+
+    assert_eq!(format!("{:?}", InputParser::Beast), "Beast");
+    assert_eq!(format!("{:?}", InputParser::Hex), "Hex");
+    assert_eq!(format!("{:?}", InputParser::Sbs), "Sbs");
+    assert_eq!(format!("{:?}", InputParser::None), "None");
+    assert_ne!(InputParser::Beast, InputParser::Hex);
 }

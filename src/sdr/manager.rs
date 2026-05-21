@@ -41,6 +41,13 @@ pub fn create_device(sdr_type: SdrType) -> Box<dyn SdrDevice> {
             Err(io::Error::new(io::ErrorKind::NotConnected, "No SDR device open"))
         }
     }
+
+    pub async fn set_gain(&mut self, gain_db: f32) -> io::Result<()> {
+        match &mut self.device {
+            Some(device) => device.set_gain(gain_db).await,
+            None => Err(io::Error::new(io::ErrorKind::NotConnected, "No SDR device open")),
+        }
+    }
 }
 
 impl Default for SdrManager {

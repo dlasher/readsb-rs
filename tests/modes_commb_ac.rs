@@ -45,3 +45,18 @@ fn test_mode_a_to_mode_c() {
     let alt = readsb::modes::mode_ac::mode_a_to_mode_c(0x2100);
     assert_ne!(alt, -9999, "Should decode to valid altitude");
 }
+
+#[test]
+fn test_commb_callsign_empty() {
+    let mb = [0x00u8; 7];
+    let result = readsb::modes::comm_b::commb_callsign(&mb);
+    assert_eq!(result, "");
+}
+
+#[test]
+fn test_commb_callsign_aircraft_ident() {
+    // MB[0]=0x10 (BDS 1,0), MB[2]=0x20 → u64 bits 37-36 = 10 → ch=2 = 'B'
+    let mb = [0x10, 0x00, 0x20, 0x00, 0x00, 0x00, 0x00];
+    let result = readsb::modes::comm_b::commb_callsign(&mb);
+    assert_eq!(result, "B");
+}

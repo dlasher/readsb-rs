@@ -1,4 +1,4 @@
-use readsb::output::{AircraftJson, globe_index, BinCraft};
+use readsb::output::{AircraftJson, globe_index, bincraft::BinCraft};
 use readsb::tracking::Aircraft;
 use readsb::types::*;
 

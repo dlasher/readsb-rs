@@ -1,5 +1,43 @@
 # Changelog
 
+## [0.4.0] - 2026-05-20
+
+### Added
+- **Gain control now works**: `--gain` / `READSB_GAIN` actually sets the SDR
+  tuner gain via `SdrManager::set_gain()` delegation to the underlying device.
+- **Inbound protocol parsing**: Beast/Hex/SBS data received on network ports
+  (30002/30003/30005) is now dispatched to the appropriate parser and fed into
+  the tracker via a dedicated `incoming_tx` broadcast channel. Multi-receiver
+  setups and mlat-client support enabled.
+- **Periodic JSON output**: `--json-dir <path>` writes `aircraft.json` every
+  `--json-reliable` seconds, with optional `--json-globe-index` for per-aircraft
+  globe- partitioned JSON files.
+- **Runtime stats collection**: `Stats` struct is wired into the main processing
+  loop — samples processed, messages decoded, unique aircraft tracked — printed
+  every 60 iterations.
+- **Mode A/C demodulation**: `src/demod/demod_ac.rs` exposes `demodulate_ac()`
+  and `modeac_to_altitude()` thin wrappers around the already-tested Mode A/C
+  preamble detector. `Tracker::update_squawk_only()` added for squawk updates.
+- **Comm-B aircraft identification**: `decode_comm_b()` is wired into the DF20
+  dispatcher in `parser.rs`. New `commb_callsign()` helper extracts packed 6-bit
+  AIS callsigns from Comm-B MB fields. `ModesMessage` gains a `commb_format`
+  field.
+
+### Changed
+- `NetworkServer::new()` now takes `&[(&str, InputParser)]` tuples, associating
+  a parser variant with each listen address. `NetworkServer` has a separate
+  `incoming_tx` channel for inbound decoded messages.
+
+### Removed
+- `src/net/protocols/uat.rs` deleted (no C equivalent, never tested).
+- `find_frame()` removed from `beast.rs` (Beast framing will be inline).
+- Unused re-exports `pub use bincraft::*; pub use heatmap::*;` removed from
+  `output/mod.rs`.
+
+### Fixed
+- Zero compiler warnings across all targets (20+ `#[allow(dead_code)]` annotations
+  added to known incomplete feature stubs pending their integration phases).
+
 ## [0.3.5] - 2026-05-20
 
 ### Fixed

@@ -2,6 +2,7 @@ use crate::types::address::{DataSource, AddrType};
 use crate::types::altitude::{AltitudeUnit, INVALID_ALTITUDE};
 use crate::types::status::{CprType, AirGround, Emergency};
 use crate::types::accuracy::{MessageAccuracy, OpStatus, NavState};
+use super::comm_b::CommBFormat;
 
 /// Decoded Mode S message.
 /// Mirrors `struct modesMessage` from readsb.h:990-1247.
@@ -38,6 +39,7 @@ pub struct ModesMessage {
     pub mv: [u8; 7],
     pub metype: u32,
     pub mesub: u32,
+    pub commb_format: CommBFormat,
 
     // Decoded data flags
     pub baro_alt_valid: bool,
@@ -105,7 +107,7 @@ impl Default for ModesMessage {
             crc_ok: false, corrected: false, addr: 0,
             ca: 0, cf: 0, aa: 0,
             me: [0; 7], mb: [0; 7], md: [0; 10], mv: [0; 7],
-            metype: 0, mesub: 0,
+            metype: 0, mesub: 0, commb_format: CommBFormat::default(),
             baro_alt_valid: false, geom_alt_valid: false,
             track_valid: false, gs_valid: false, ias_valid: false,
             tas_valid: false, mach_valid: false, baro_rate_valid: false,

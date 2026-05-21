@@ -120,6 +120,14 @@ impl Tracker {
         }
     }
 
+    pub fn update_squawk_only(&self, addr: u32, squawk: u32, now: i64) {
+        if let Some(ac) = self.registry.get(addr) {
+            let mut a = ac.write().unwrap();
+            a.squawk = squawk;
+            a.seen = now;
+        }
+    }
+
     pub fn remove_stale(&self, now: i64) -> usize {
         self.registry.remove_stale(now, TRACK_EXPIRE)
     }

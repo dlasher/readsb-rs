@@ -4,6 +4,14 @@ use tokio::sync::broadcast;
 use tracing::{info, warn};
 use super::client::ClientConnection;
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum InputParser {
+    None,
+    Beast,
+    Hex,
+    Sbs,
+}
+
 #[derive(Clone, Debug)]
 pub struct DecodedMessage {
     pub data: Vec<u8>,
@@ -11,46 +19,56 @@ pub struct DecodedMessage {
 }
 
 pub struct NetworkServer {
-    bind_addrs: Vec<String>,
+    bind_addrs: Vec<(String, InputParser)>,
     pub message_tx: broadcast::Sender<DecodedMessage>,
+    pub incoming_tx: broadcast::Sender<DecodedMessage>,
 }
 
 impl NetworkServer {
-    pub fn new(addrs: &[&str]) -> (Self, broadcast::Receiver<DecodedMessage>) {
-        let (tx, rx) = broadcast::channel(1024);
-        (NetworkServer { bind_addrs: addrs.iter().map(|s| s.to_string()).collect(), message_tx: tx }, rx)
+    pub fn new(addrs: &[(&str, InputParser)]) -> (Self, broadcast::Receiver<DecodedMessage>) {
+        let (out_tx, out_rx) = broadcast::channel(1024);
+        let (in_tx, _) = broadcast::channel(1024);
+        let bind_addrs = addrs.iter().map(|(a, p)| (a.to_string(), *p)).collect();
+        (NetworkServer { bind_addrs, message_tx: out_tx, incoming_tx: in_tx }, out_rx)
     }
 
-    pub fn with_channel(addrs: &[&str], channel: broadcast::Sender<DecodedMessage>) -> Self {
-        NetworkServer { bind_addrs: addrs.iter().map(|s| s.to_string()).collect(), message_tx: channel }
+    #[allow(dead_code)] // API alternative constructor; kept for testability
+    pub fn with_channel(addrs: &[(&str, InputParser)], channel: broadcast::Sender<DecodedMessage>) -> Self {
+        let (in_tx, _) = broadcast::channel(1024);
+        let bind_addrs = addrs.iter().map(|(a, p)| (a.to_string(), *p)).collect();
+        NetworkServer { bind_addrs, message_tx: channel, incoming_tx: in_tx }
     }
 
     pub async fn run(&mut self) -> io::Result<()> {
-        let mut listeners = Vec::new();
-        for addr in &self.bind_addrs {
+        let mut listeners: Vec<(TcpListener, InputParser)> = Vec::new();
+        for (addr, parser) in &self.bind_addrs {
             let listener = TcpListener::bind(addr).await?;
-            info!("Listening on {}", addr);
-            listeners.push(listener);
+            info!("Listening on {} ({:?})", addr, parser);
+            listeners.push((listener, *parser));
         }
 
         loop {
-            let (stream, addr) = match listeners.len() {
+            let (stream, addr, parser) = match listeners.len() {
                 0 => return Err(io::Error::new(io::ErrorKind::NotConnected, "no listeners")),
-                1 => listeners[0].accept().await?,
-                _ => accept_any(&listeners).await?,
+                1 => {
+                    let (stream, addr) = listeners[0].0.accept().await?;
+                    (stream, addr, listeners[0].1)
+                }
+                _ => {
+                    let accept_futs: Vec<_> = listeners.iter().map(|(l, _)| Box::pin(l.accept())).collect();
+                    let (result, idx, _) = futures::future::select_all(accept_futs).await;
+                    let (stream, addr) = result?;
+                    (stream, addr, listeners[idx].1)
+                }
             };
-            let tx = self.message_tx.clone();
+            let in_tx = self.incoming_tx.clone();
             let rx = self.message_tx.subscribe();
             tokio::spawn(async move {
-                warn!("Client connected: {}", addr);
-                if let Err(e) = ClientConnection::handle(stream, tx, rx).await {
+                warn!("Client connected: {} ({:?})", addr, parser);
+                if let Err(e) = ClientConnection::handle(stream, parser, in_tx, rx).await {
                     warn!("Client {} error: {}", addr, e);
                 }
             });
         }
     }
-}
-
-async fn accept_any(listeners: &[TcpListener]) -> io::Result<(tokio::net::TcpStream, std::net::SocketAddr)> {
-    futures::future::select_all(listeners.iter().map(|l| Box::pin(l.accept()))).await.0
 }

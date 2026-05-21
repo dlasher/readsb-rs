@@ -169,6 +169,13 @@ impl AircraftRegistry {
         self.aircraft.read().unwrap().len()
     }
 
+    pub fn iter_aircraft(&self) -> Vec<Aircraft> {
+        self.aircraft.read().unwrap()
+            .values()
+            .map(|a| a.read().unwrap().clone())
+            .collect()
+    }
+
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }

@@ -247,3 +247,18 @@ fn test_tracker_cpr_pairing() {
         assert!(a_ref.position_valid.source == DataSource::Adsb);
     }
 }
+
+#[test]
+fn test_tracker_update_squawk_only() {
+    let tracker = Tracker::new();
+    let mut mm = ModesMessage::default();
+    mm.addr = 0x4840D6;
+    mm.addrtype = AddrType::AdsbIcao;
+    mm.source = DataSource::Adsb;
+    tracker.update_from_message(&mm, 1000);
+
+    tracker.update_squawk_only(0x4840D6, 0o1234, 2000);
+    let a = tracker.registry.get(0x4840D6).unwrap();
+    let a_ref = a.read().unwrap();
+    assert_eq!(a_ref.squawk, 0o1234);
+}

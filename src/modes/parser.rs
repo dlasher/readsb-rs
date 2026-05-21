@@ -83,6 +83,7 @@ fn decode_df20(mm: &mut ModesMessage) {
     let ac = ((mm.msg[2] as u32 & 0x1F) << 8) | (mm.msg[3] as u32);
     if ac != 0 { mm.baro_alt = decode_altitude(ac); mm.baro_alt_valid = mm.baro_alt != INVALID_ALTITUDE; mm.baro_alt_unit = AltitudeUnit::Feet; }
     mm.mb.copy_from_slice(&mm.msg[5..12]);
+    mm.commb_format = crate::modes::comm_b::decode_comm_b(&mm.mb);
 }
 fn decode_df24(_mm: &mut ModesMessage) {}
 fn decode_df31(mm: &mut ModesMessage) { mm.mv.copy_from_slice(&mm.msg[5..12]); }

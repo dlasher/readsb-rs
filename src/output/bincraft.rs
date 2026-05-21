@@ -1,3 +1,4 @@
+#[allow(dead_code)] // wired from globe data writer; pending Phase 5
 #[repr(C, packed)]
 pub struct BinCraft {
     pub hex: u32,
