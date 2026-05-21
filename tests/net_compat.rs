@@ -38,6 +38,20 @@ fn test_beast_encode_output() {
 }
 
 #[test]
+fn test_hex_encode_output() {
+    use readsb::net::protocols::hex;
+
+    let encoded = hex::encode_hex_output(&[0x8D, 0x48, 0x40, 0xD6]);
+    assert_eq!(encoded, b"*8D4840D6;\n", "4-byte payload");
+
+    let encoded_empty = hex::encode_hex_output(&[]);
+    assert_eq!(encoded_empty, b"*;\n", "empty payload");
+
+    let encoded_wide = hex::encode_hex_output(&[0x00, 0xFF, 0x0A]);
+    assert_eq!(encoded_wide, b"*00FF0A;\n", "zero, max, newline bytes");
+}
+
+#[test]
 fn test_beast_rssi_encoding() {
     use readsb::net::protocols::beast;
     let payload = [0x1A, 0x2B, 0x3C, 0x4D];

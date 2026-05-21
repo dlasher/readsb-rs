@@ -1,3 +1,10 @@
+/// Encode raw Mode-S bytes as AVR-compatible hex line.
+/// Format: *<hex string>;\n
+pub fn encode_hex_output(data: &[u8]) -> Vec<u8> {
+    let hex: String = data.iter().map(|b| format!("{:02X}", b)).collect();
+    format!("*{};\n", hex).into_bytes()
+}
+
 pub fn parse_line(line: &str) -> Option<Vec<u8>> {
     let line = line.trim();
     if line.is_empty() { return None; }
