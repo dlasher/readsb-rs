@@ -2,7 +2,7 @@ use criterion::{criterion_group, criterion_main, Criterion};
 use readsb::demod::{convert_to_magnitude, demodulate2400, InputFormat};
 
 fn bench_convert_sc16q11(c: &mut Criterion) {
-    let input: Vec<u8> = (0..480000).map(|i| i as u8 % 256).collect();
+    let input: Vec<u8> = (0..480000).map(|i| (i % 256) as u8).collect();
     let mut output = vec![0u16; 240000];
     c.bench_function("convert_sc16q11", |b|
         b.iter(|| {

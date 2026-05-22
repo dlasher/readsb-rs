@@ -10,30 +10,50 @@ use std::io::{self, Read};
 
 /// Read up to `max_frames` Beast frames from a byte stream.
 /// Scans for 0x1a start markers and returns decoded frames.
+/// Preserves partial data between reads for fragmented TCP streams.
+/// If read times out (WouldBlock/TimedOut) after finding frames, returns the frames.
 pub fn read_beast_frames<R: Read>(reader: &mut R, max_frames: usize) -> io::Result<Vec<BeastFrame>> {
     let mut buf = vec![0u8; 65536];
     let mut frames = Vec::new();
     let mut offset = 0usize;
 
     loop {
-        let n = reader.read(&mut buf[offset..])?;
-        if n == 0 { break; }
+        let n = match reader.read(&mut buf[offset..]) {
+            Ok(0) => break,
+            Ok(n) => n,
+            Err(ref e) if e.kind() == io::ErrorKind::WouldBlock
+                || e.kind() == io::ErrorKind::TimedOut => {
+                return Ok(frames);
+            }
+            Err(e) => return Err(e),
+        };
         let total = offset + n;
 
         let mut i = 0usize;
+        let mut consumed = 0usize;
         while i < total && frames.len() < max_frames {
             if buf[i] == 0x1a {
                 if let Some(frame) = parse_beast_frame(&buf[i..]) {
                     frames.push(frame);
                     i += 1;
-                    while i < total && buf[i] != 0x1a { i += 1; }
+                    while i < total && buf[i] != 0x1a {
+                        i += 1;
+                    }
+                    consumed = i;
                     continue;
                 }
             }
             i += 1;
         }
-        offset = 0;
-        if frames.len() >= max_frames { break; }
+        if consumed < total {
+            buf.copy_within(consumed..total, 0);
+            offset = total - consumed;
+        } else {
+            offset = 0;
+        }
+        if frames.len() >= max_frames {
+            break;
+        }
     }
     Ok(frames)
 }
@@ -74,10 +94,15 @@ pub fn parse_beast_frame(data: &[u8]) -> Option<BeastFrame> {
     let ts_bytes = &data[2..8];
     let timestamp = i64::from_be_bytes([0, 0, ts_bytes[0], ts_bytes[1], ts_bytes[2], ts_bytes[3], ts_bytes[4], ts_bytes[5]]);
     let rssi = data[8];
-    let raw_payload = &data[9..];
-    if raw_payload.is_empty() { return None; }
+    // Estimate stuffed payload length: 2x expected payload for worst-case stuffing
+    let max_stuffed = if data[1] == 0x32 { 14_usize } else { 28_usize };
+    let raw_end = (9 + max_stuffed).min(data.len());
+    if raw_end <= 9 { return None; }
+    let raw_payload = &data[9..raw_end];
 
-    let payload = destuff_beast(raw_payload);
+    let mut payload = destuff_beast(raw_payload);
+    let max_len = if data[1] == 0x32 { 7_usize } else { 14_usize };
+    payload.truncate(max_len);
     Some(BeastFrame { timestamp, frame_type: data[1], payload, rssi })
 }
 
@@ -98,7 +123,7 @@ pub fn beast_analysis(frames: &[BeastFrame]) -> BeastAnalysis {
     let total_frames = frames.len();
     let mut short_frames = 0usize;
     let mut long_frames = 0usize;
-    let mut stuffing_errors = 0usize;
+    let stuffing_errors = 0usize;
     let mut df_counts = [0u32; 32];
 
     for frame in frames {
@@ -183,10 +208,10 @@ fn escape_beast(data: &[u8]) -> Vec<u8> {
 /// Format: 0x1a <type> <6B timestamp> <1B RSSI> <payload>
 ///   - 0x1a: frame start marker (not escaped)
 ///   - type: 0x32 (short, ≤7B) / 0x33 (long, 14B)
-///   - timestamp: 6 bytes big-endian, zeros (placeholder)
+///   - timestamp: 6 bytes big-endian, microseconds (lower 48 bits of `timestamp_us`)
 ///   - RSSI: signal/256, clamped to 255, 0xff for signal ≤ 0
 ///   - payload: raw Mode-S bytes with 0x1a byte-stuffing
-pub fn encode_beast_output(data: &[u8], signal_level: f64) -> Vec<u8> {
+pub fn encode_beast_output(data: &[u8], signal_level: f64, timestamp_us: i64) -> Vec<u8> {
     let mut out = Vec::with_capacity(data.len() + 10);
 
     out.push(0x1a); // frame start
@@ -194,8 +219,9 @@ pub fn encode_beast_output(data: &[u8], signal_level: f64) -> Vec<u8> {
     let msg_type = if data.len() <= 7 { 0x32 } else { 0x33 };
     out.push(msg_type);
 
-    // Timestamp: 6 zero bytes (placeholder)
-    out.extend_from_slice(&[0u8; 6]);
+    // Timestamp: 6 bytes big-endian (lower 48 bits of timestamp_us)
+    let ts_bytes = timestamp_us.to_be_bytes();
+    out.extend_from_slice(&ts_bytes[2..]);
 
     // RSSI: signal_level/256, 0xff sentinel if no signal
     let rssi = if signal_level <= 0.0 {

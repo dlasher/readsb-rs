@@ -53,6 +53,11 @@ pub struct ReadsbConfig {
     #[allow(dead_code)] // pending range filtering feature
     pub max_range: Option<f64>,
 
+    #[arg(long, env = "READSB_PREAMBLE_THRESHOLD")]
+    pub preamble_threshold: Option<u32>,
+    #[arg(long, env = "READSB_AGC")]
+    pub agc: bool,
+
     #[arg(long, env = "READSB_DEBUG_NET")]
     pub debug_net: bool,
     #[arg(long, env = "READSB_DEBUG_CPR")]

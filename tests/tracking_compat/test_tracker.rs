@@ -1,13 +1,17 @@
 use readsb::tracking::Tracker;
-use readsb::types::{ModesMessage, DataSource, AddrType, Emergency};
+use readsb::types::{
+    AddrType, DataSource, Emergency, MessageAccuracy, ModesMessage, NavState,
+};
 
 #[test]
 fn test_tracker_creates_aircraft() {
     let tracker = Tracker::new();
-    let mut mm = ModesMessage::default();
-    mm.addr = 0x4840D6;
-    mm.addrtype = AddrType::AdsbIcao;
-    mm.source = DataSource::Adsb;
+    let mm = ModesMessage {
+        addr: 0x4840D6,
+        addrtype: AddrType::AdsbIcao,
+        source: DataSource::Adsb,
+        ..Default::default()
+    };
 
     let result = tracker.update_from_message(&mm, 1000);
     assert!(result.is_some());
@@ -17,8 +21,10 @@ fn test_tracker_creates_aircraft() {
 #[test]
 fn test_tracker_ignores_invalid_address() {
     let tracker = Tracker::new();
-    let mut mm = ModesMessage::default();
-    mm.addr = 0;
+    let mm = ModesMessage {
+        addr: 0,
+        ..Default::default()
+    };
     assert!(tracker.update_from_message(&mm, 1000).is_none());
     assert_eq!(tracker.registry.len(), 0);
 }
@@ -26,12 +32,14 @@ fn test_tracker_ignores_invalid_address() {
 #[test]
 fn test_tracker_updates_altitude_baro() {
     let tracker = Tracker::new();
-    let mut mm = ModesMessage::default();
-    mm.addr = 0x4840D6;
-    mm.addrtype = AddrType::AdsbIcao;
-    mm.source = DataSource::Adsb;
-    mm.baro_alt = 35000;
-    mm.baro_alt_valid = true;
+    let mm = ModesMessage {
+        addr: 0x4840D6,
+        addrtype: AddrType::AdsbIcao,
+        source: DataSource::Adsb,
+        baro_alt: 35000,
+        baro_alt_valid: true,
+        ..Default::default()
+    };
 
     let result = tracker.update_from_message(&mm, 1000);
     let a = result.unwrap();
@@ -44,14 +52,16 @@ fn test_tracker_updates_altitude_baro() {
 #[test]
 fn test_tracker_updates_altitude_geom() {
     let tracker = Tracker::new();
-    let mut mm = ModesMessage::default();
-    mm.addr = 0x4840D6;
-    mm.addrtype = AddrType::AdsbIcao;
-    mm.source = DataSource::Adsb;
-    mm.baro_alt = 35000;
-    mm.baro_alt_valid = true;
-    mm.geom_alt = 36000;
-    mm.geom_alt_valid = true;
+    let mm = ModesMessage {
+        addr: 0x4840D6,
+        addrtype: AddrType::AdsbIcao,
+        source: DataSource::Adsb,
+        baro_alt: 35000,
+        baro_alt_valid: true,
+        geom_alt: 36000,
+        geom_alt_valid: true,
+        ..Default::default()
+    };
 
     let result = tracker.update_from_message(&mm, 1000);
     let a = result.unwrap();
@@ -64,13 +74,14 @@ fn test_tracker_updates_altitude_geom() {
 #[test]
 fn test_tracker_updates_callsign() {
     let tracker = Tracker::new();
-    let mut mm = ModesMessage::default();
-    mm.addr = 0x4840D6;
-    mm.addrtype = AddrType::AdsbIcao;
-    mm.source = DataSource::Adsb;
-    mm.callsign_valid = true;
-    let cs: &[u8] = b"BAW123\0\0\0\0\0\0\0\0\0\0";
-    mm.callsign.copy_from_slice(cs);
+    let mm = ModesMessage {
+        addr: 0x4840D6,
+        addrtype: AddrType::AdsbIcao,
+        source: DataSource::Adsb,
+        callsign_valid: true,
+        callsign: *b"BAW123\0\0\0\0\0\0\0\0\0\0",
+        ..Default::default()
+    };
 
     let result = tracker.update_from_message(&mm, 1000);
     let a = result.unwrap();
@@ -82,18 +93,20 @@ fn test_tracker_updates_callsign() {
 #[test]
 fn test_tracker_updates_velocity() {
     let tracker = Tracker::new();
-    let mut mm = ModesMessage::default();
-    mm.addr = 0x4840D6;
-    mm.addrtype = AddrType::AdsbIcao;
-    mm.source = DataSource::Adsb;
-    mm.gs = 450.0;
-    mm.gs_valid = true;
-    mm.ias_valid = true;
-    mm.ias = 280;
-    mm.tas_valid = true;
-    mm.tas = 460;
-    mm.mach_valid = true;
-    mm.mach = 0.82;
+    let mm = ModesMessage {
+        addr: 0x4840D6,
+        addrtype: AddrType::AdsbIcao,
+        source: DataSource::Adsb,
+        gs: 450.0,
+        gs_valid: true,
+        ias: 280,
+        ias_valid: true,
+        tas: 460,
+        tas_valid: true,
+        mach: 0.82,
+        mach_valid: true,
+        ..Default::default()
+    };
 
     let result = tracker.update_from_message(&mm, 1000);
     let a = result.unwrap();
@@ -108,12 +121,14 @@ fn test_tracker_updates_velocity() {
 #[test]
 fn test_tracker_updates_squawk() {
     let tracker = Tracker::new();
-    let mut mm = ModesMessage::default();
-    mm.addr = 0x4840D6;
-    mm.addrtype = AddrType::AdsbIcao;
-    mm.source = DataSource::Adsb;
-    mm.squawk_valid = true;
-    mm.squawk_hex = 0x1234;
+    let mm = ModesMessage {
+        addr: 0x4840D6,
+        addrtype: AddrType::AdsbIcao,
+        source: DataSource::Adsb,
+        squawk_valid: true,
+        squawk_hex: 0x1234,
+        ..Default::default()
+    };
 
     let result = tracker.update_from_message(&mm, 1000);
     let a = result.unwrap();
@@ -125,11 +140,13 @@ fn test_tracker_updates_squawk() {
 #[test]
 fn test_tracker_updates_emergency() {
     let tracker = Tracker::new();
-    let mut mm = ModesMessage::default();
-    mm.addr = 0x4840D6;
-    mm.addrtype = AddrType::AdsbIcao;
-    mm.source = DataSource::Adsb;
-    mm.emergency = Emergency::General;
+    let mm = ModesMessage {
+        addr: 0x4840D6,
+        addrtype: AddrType::AdsbIcao,
+        source: DataSource::Adsb,
+        emergency: Emergency::General,
+        ..Default::default()
+    };
 
     let result = tracker.update_from_message(&mm, 1000);
     let a = result.unwrap();
@@ -140,16 +157,21 @@ fn test_tracker_updates_emergency() {
 #[test]
 fn test_tracker_updates_nav() {
     let tracker = Tracker::new();
-    let mut mm = ModesMessage::default();
-    mm.addr = 0x4840D6;
-    mm.addrtype = AddrType::AdsbIcao;
-    mm.source = DataSource::Adsb;
-    mm.nav.mcp_altitude_valid = true;
-    mm.nav.mcp_altitude = 10000;
-    mm.nav.fms_altitude_valid = true;
-    mm.nav.fms_altitude = 9500;
-    mm.nav.qnh_valid = true;
-    mm.nav.qnh = 1013.25;
+    let mm = ModesMessage {
+        addr: 0x4840D6,
+        addrtype: AddrType::AdsbIcao,
+        source: DataSource::Adsb,
+        nav: NavState {
+            mcp_altitude_valid: true,
+            mcp_altitude: 10000,
+            fms_altitude_valid: true,
+            fms_altitude: 9500,
+            qnh_valid: true,
+            qnh: 1013.25,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
 
     let result = tracker.update_from_message(&mm, 1000);
     let a = result.unwrap();
@@ -162,11 +184,16 @@ fn test_tracker_updates_nav() {
 #[test]
 fn test_tracker_updates_accuracy() {
     let tracker = Tracker::new();
-    let mut mm = ModesMessage::default();
-    mm.addr = 0x4840D6;
-    mm.addrtype = AddrType::AdsbIcao;
-    mm.source = DataSource::Adsb;
-    mm.accuracy.nac_p = 8;
+    let mm = ModesMessage {
+        addr: 0x4840D6,
+        addrtype: AddrType::AdsbIcao,
+        source: DataSource::Adsb,
+        accuracy: MessageAccuracy {
+            nac_p: 8,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
 
     let result = tracker.update_from_message(&mm, 1000);
     let a = result.unwrap();
@@ -178,16 +205,20 @@ fn test_tracker_updates_accuracy() {
 #[test]
 fn test_tracker_remove_stale() {
     let tracker = Tracker::new();
-    let mut mm1 = ModesMessage::default();
-    mm1.addr = 0x4840D6;
-    mm1.addrtype = AddrType::AdsbIcao;
-    mm1.source = DataSource::Adsb;
+    let mm1 = ModesMessage {
+        addr: 0x4840D6,
+        addrtype: AddrType::AdsbIcao,
+        source: DataSource::Adsb,
+        ..Default::default()
+    };
     tracker.update_from_message(&mm1, 1000);
 
-    let mut mm2 = ModesMessage::default();
-    mm2.addr = 0x123456;
-    mm2.addrtype = AddrType::AdsbIcao;
-    mm2.source = DataSource::Adsb;
+    let mm2 = ModesMessage {
+        addr: 0x123456,
+        addrtype: AddrType::AdsbIcao,
+        source: DataSource::Adsb,
+        ..Default::default()
+    };
     tracker.update_from_message(&mm2, 1000);
 
     assert_eq!(tracker.registry.len(), 2);
@@ -206,10 +237,12 @@ fn test_tracker_remove_stale() {
 #[test]
 fn test_tracker_seen_updates_on_message() {
     let tracker = Tracker::new();
-    let mut mm = ModesMessage::default();
-    mm.addr = 0x4840D6;
-    mm.addrtype = AddrType::AdsbIcao;
-    mm.source = DataSource::Adsb;
+    let mm = ModesMessage {
+        addr: 0x4840D6,
+        addrtype: AddrType::AdsbIcao,
+        source: DataSource::Adsb,
+        ..Default::default()
+    };
 
     // First message at t=1000
     tracker.update_from_message(&mm, 1000);
@@ -226,14 +259,16 @@ fn test_tracker_cpr_pairing() {
     let tracker = Tracker::new();
 
     // Send even frame first
-    let mut even = ModesMessage::default();
-    even.addr = 0x4840D6;
-    even.addrtype = AddrType::AdsbIcao;
-    even.source = DataSource::Adsb;
-    even.cpr_valid = true;
-    even.cpr_odd = false;
-    even.cpr_lat = 12345;
-    even.cpr_lon = 67890;
+    let even = ModesMessage {
+        addr: 0x4840D6,
+        addrtype: AddrType::AdsbIcao,
+        source: DataSource::Adsb,
+        cpr_valid: true,
+        cpr_odd: false,
+        cpr_lat: 12345,
+        cpr_lon: 67890,
+        ..Default::default()
+    };
 
     let result1 = tracker.update_from_message(&even, 1000);
     {
@@ -247,14 +282,16 @@ fn test_tracker_cpr_pairing() {
     }
 
     // Send odd frame (should trigger position decode)
-    let mut odd = ModesMessage::default();
-    odd.addr = 0x4840D6;
-    odd.addrtype = AddrType::AdsbIcao;
-    odd.source = DataSource::Adsb;
-    odd.cpr_valid = true;
-    odd.cpr_odd = true;
-    odd.cpr_lat = 12400;
-    odd.cpr_lon = 67800;
+    let odd = ModesMessage {
+        addr: 0x4840D6,
+        addrtype: AddrType::AdsbIcao,
+        source: DataSource::Adsb,
+        cpr_valid: true,
+        cpr_odd: true,
+        cpr_lat: 12400,
+        cpr_lon: 67800,
+        ..Default::default()
+    };
 
     let result2 = tracker.update_from_message(&odd, 1100);
     {
@@ -275,10 +312,12 @@ fn test_tracker_cpr_pairing() {
 #[test]
 fn test_tracker_update_squawk_only() {
     let tracker = Tracker::new();
-    let mut mm = ModesMessage::default();
-    mm.addr = 0x4840D6;
-    mm.addrtype = AddrType::AdsbIcao;
-    mm.source = DataSource::Adsb;
+    let mm = ModesMessage {
+        addr: 0x4840D6,
+        addrtype: AddrType::AdsbIcao,
+        source: DataSource::Adsb,
+        ..Default::default()
+    };
     tracker.update_from_message(&mm, 1000);
 
     tracker.update_squawk_only(0x4840D6, 0o1234, 2000);
@@ -290,11 +329,13 @@ fn test_tracker_update_squawk_only() {
 #[test]
 fn test_tracker_signal_level() {
     let tracker = Tracker::new();
-    let mut mm = ModesMessage::default();
-    mm.addr = 0x4840D6;
-    mm.addrtype = AddrType::AdsbIcao;
-    mm.source = DataSource::Adsb;
-    mm.signal_level = 5000.0;
+    let mm = ModesMessage {
+        addr: 0x4840D6,
+        addrtype: AddrType::AdsbIcao,
+        source: DataSource::Adsb,
+        signal_level: 5000.0,
+        ..Default::default()
+    };
 
     tracker.update_from_message(&mm, 1000);
     let a = tracker.registry.get(0x4840D6).unwrap();
@@ -308,14 +349,16 @@ fn test_tracker_cpr_relative_decode() {
     tracker.user_lat = 48.0;
     tracker.user_lon = 10.0;
 
-    let mut even = ModesMessage::default();
-    even.addr = 0x4840D6;
-    even.addrtype = AddrType::AdsbIcao;
-    even.source = DataSource::Adsb;
-    even.cpr_valid = true;
-    even.cpr_odd = false;
-    even.cpr_lat = 12345;
-    even.cpr_lon = 67890;
+    let even = ModesMessage {
+        addr: 0x4840D6,
+        addrtype: AddrType::AdsbIcao,
+        source: DataSource::Adsb,
+        cpr_valid: true,
+        cpr_odd: false,
+        cpr_lat: 12345,
+        cpr_lon: 67890,
+        ..Default::default()
+    };
 
     let result = tracker.update_from_message(&even, 1000);
     let a = result.unwrap();
@@ -332,14 +375,16 @@ fn test_tracker_range_filter() {
     tracker.user_lon = 10.0;
     tracker.max_range = 1.0; // 1 meter — impossibly small
 
-    let mut even = ModesMessage::default();
-    even.addr = 0x4840D6;
-    even.addrtype = AddrType::AdsbIcao;
-    even.source = DataSource::Adsb;
-    even.cpr_valid = true;
-    even.cpr_odd = false;
-    even.cpr_lat = 12345;
-    even.cpr_lon = 67890;
+    let even = ModesMessage {
+        addr: 0x4840D6,
+        addrtype: AddrType::AdsbIcao,
+        source: DataSource::Adsb,
+        cpr_valid: true,
+        cpr_odd: false,
+        cpr_lat: 12345,
+        cpr_lon: 67890,
+        ..Default::default()
+    };
 
     let result = tracker.update_from_message(&even, 1000);
     let a = result.unwrap();

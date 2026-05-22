@@ -1,5 +1,43 @@
 # Changelog
 
+## [0.8.0] - 2026-05-21
+
+### Added
+- **Full `demod_2400.rs` rewrite matching readsb-C**: 8-phase implementation
+  covering sample rate update, slice coefficients, ICAO filter, `slice_byte()`,
+  preamble detection, tiered scoring, 5-phase decode, AGC loop, and CLI flags.
+  `src/demod/demod_2400.rs`
+- **Global ICAO filter**: 4096-bucket `LazyLock<Mutex<IcaoFilterInner>>` with
+  `icao_filter_add()`, `icao_filter_test()`, `clear_filter()`.
+  `src/demod/icao_filter.rs`
+- **`DemodConfig`/`DemodResult`/`Message`/`MagBufStats` structs** for
+  configurable demodulation pipeline. `src/demod/demod_2400.rs`
+- **`demodulate2400_v2()` public API**: takes `DemodConfig`, returns
+  `DemodResult` with messages + auto-gain stats. `src/demod/demod_2400.rs`
+- **`--agc` and `--preamble-threshold` CLI flags**: `src/config.rs`
+- **29 integration tests** for demodulator, ICAO filter, slice functions,
+  preamble, scoring, and structs. `tests/demod_compat.rs`
+
+### Changed
+- Sample rate 2.0 MHz → 2.4 MHz in `rtl_tcp.rs` and `rtlsdr.rs`
+- `MODES_LONG_MSG_SAMPLES` 224→269, `MODES_SHORT_MSG_SAMPLES` 112→135
+- Slice coefficients corrected to match readsb-C exactly (all 5 phases)
+- `slice_phase4` now takes &[u16] with len ≥ 4 (was 3)
+- `encode_beast_output` now takes `(&[u8], f64, u64)` — 3 arguments with
+  monotonic microsecond timestamp
+- `CrcFixEngine::diagnose(syndrome) -> Option<ErrorInfo>` for inline CRC
+  repair in `score_modes_message`
+- `decode_frames` dispatches CRC engines by `msgbits` (56 vs 112)
+- `decode_message()` removed (replaced by `score_phase` + `slice_byte`)
+- `score_modes_message` scoring: -2 (invalid), -1 (DF unknown), 350–1800 tiered
+- Integration test `test_synthetic_fixture_pipeline` replaced with
+  `test_binary_processes_fixture` smoke test
+
+### Fixed
+- 17 clippy lints in test files (manual_is_multiple_of, drop_non_drop,
+  field_reassign_with_default, redundant pattern matching, needless_index,
+  needless_borrow, literal_out_of_range)
+
 ## [0.7.0] - 2026-05-21
 
 ### Fixed

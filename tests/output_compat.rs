@@ -56,7 +56,7 @@ fn test_globe_index_bounds() {
 fn test_bincraft_memory_layout() {
     assert_eq!(std::mem::size_of::<BinCraft>(), 112, "BinCraft must be exactly 112 bytes");
     // Verify using field offset checks
-    let bc = BinCraft {
+    let _bc = BinCraft {
         hex: 0x4840D6,
         seen: 1000,
         lon: -50000,
@@ -80,6 +80,5 @@ fn test_bincraft_memory_layout() {
         _pad: [0; 32],
     };
     // Verify member fields are accessible (smoke test against struct changes)
-    drop(bc);
     assert_eq!(std::mem::size_of::<BinCraft>(), 112, "BinCraft must be exactly 112 bytes");
 }

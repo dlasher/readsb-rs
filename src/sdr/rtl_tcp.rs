@@ -47,7 +47,7 @@ impl RtlTcpClient {
             port,
             stream: None,
             freq_hz: 1090000000,
-            sample_rate: 2000000,
+            sample_rate: 2400000,
             gain_db: 49.6,
             connected: false,
         }

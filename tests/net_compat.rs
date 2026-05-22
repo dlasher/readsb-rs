@@ -191,22 +191,22 @@ fn test_beast_rssi_encoding() {
     use readsb::net::protocols::beast;
     let payload = [0x1A, 0x2B, 0x3C, 0x4D];
 
-    let with_signal = beast::encode_beast_output(&payload, 5000.0);
+    let with_signal = beast::encode_beast_output(&payload, 5000.0, 0);
     assert_eq!(with_signal[8], 19, "RSSI for signal=5000 should be 19");
 
-    let with_zero = beast::encode_beast_output(&payload, 0.0);
+    let with_zero = beast::encode_beast_output(&payload, 0.0, 0);
     assert_eq!(with_zero[8], 0xff, "RSSI for signal=0 should be 0xff sentinel");
 
-    let with_negative = beast::encode_beast_output(&payload, -1.0);
+    let with_negative = beast::encode_beast_output(&payload, -1.0, 0);
     assert_eq!(with_negative[8], 0xff, "RSSI for signal=-1 should be 0xff sentinel");
 
-    let with_moderate = beast::encode_beast_output(&payload, 50000.0);
+    let with_moderate = beast::encode_beast_output(&payload, 50000.0, 0);
     assert_eq!(with_moderate[8], 195, "RSSI for signal=50000 should be 195");
 
-    let with_clamped = beast::encode_beast_output(&payload, 100000.0);
+    let with_clamped = beast::encode_beast_output(&payload, 100000.0, 0);
     assert_eq!(with_clamped[8], 0xff, "RSSI for signal=100000 should be clamped to 0xff");
 
-    let edge = beast::encode_beast_output(&payload, 65536.0);
+    let edge = beast::encode_beast_output(&payload, 65536.0, 0);
     assert_eq!(edge[8], 255, "RSSI for signal=65536 should be 255 (max)");
 }
 
@@ -214,10 +214,10 @@ fn test_beast_rssi_encoding() {
 fn test_beast_frame_types() {
     use readsb::net::protocols::beast;
 
-    let encoded_short = beast::encode_beast_output(&[0u8; 7], 0.0);
+    let encoded_short = beast::encode_beast_output(&[0u8; 7], 0.0, 0);
     assert_eq!(encoded_short[1], 0x32, "7B payload → type 0x32");
 
-    let encoded_long = beast::encode_beast_output(&[0u8; 14], 0.0);
+    let encoded_long = beast::encode_beast_output(&[0u8; 14], 0.0, 0);
     assert_eq!(encoded_long[1], 0x33, "14B payload → type 0x33");
 }
 
@@ -225,7 +225,7 @@ fn test_beast_frame_types() {
 fn test_beast_byte_stuffing() {
     use readsb::net::protocols::beast;
     let data = [0x00, 0x1a, 0x84, 0x1a, 0xc3, 0xb3, 0x1d];
-    let encoded = beast::encode_beast_output(&data, 0.0);
+    let encoded = beast::encode_beast_output(&data, 0.0, 0);
 
     assert_eq!(encoded.len(), 18, "Expected 9 header + 9 stuffed payload (7 raw + 2 stuffing)");
     // Frame: 0x1a(1) + 0x32(1) + 6x0 + 0xff = 9 header
@@ -248,13 +248,11 @@ fn test_beast_standard_format() {
         0x8D, 0x48, 0x40, 0xD6, 0x20, 0x2C, 0xC3, 0x71,
         0xC3, 0x2C, 0xE0, 0x57, 0x60, 0x98,
     ];
-    let encoded = beast::encode_beast_output(&data, 0.0);
+    let encoded = beast::encode_beast_output(&data, 0.0, 0x0102030405);
 
     assert_eq!(encoded[0], 0x1a, "First byte must be 0x1a (frame start)");
     assert_eq!(encoded[1], 0x33, "14B payload → type 0x33 (long frame)");
-    for i in 2..8 {
-        assert_eq!(encoded[i], 0x00, "Timestamp bytes {i} must be zero");
-    }
+    assert_eq!(&encoded[2..8], &[0x00, 0x01, 0x02, 0x03, 0x04, 0x05], "Timestamp must be big-endian 0x0102030405");
     assert_eq!(encoded[8], 0xff, "RSSI byte must be 0xff (signal=0 sentinel)");
     assert_eq!(&encoded[9..23], &data, "Payload must be verbatim at bytes 9-22");
     assert_eq!(encoded.len(), 23, "Frame length must be 1+1+6+1+14 = 23");

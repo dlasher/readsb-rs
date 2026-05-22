@@ -7,6 +7,7 @@ use readsb::stats::Stats;
 use readsb::net::NetworkServer;
 use readsb::net::server::InputParser;
 use readsb::net::protocols::beast::encode_beast_output;
+use readsb::demod::DemodConfig;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -228,6 +229,8 @@ async fn main() {
 
     info!("Entering main processing loop");
 
+    let start_time = Instant::now();
+
     // Console outputter
     let medium_interval = console_interval_from_env();
     let mut outputter = Outputter::new(initial_level, medium_interval);
@@ -268,6 +271,10 @@ async fn main() {
         }
     }
 
+    let preamble_threshold = config.preamble_threshold.unwrap_or(32768);
+    let agc = config.agc;
+    let mut current_gain = config.gain.unwrap_or(49.6);
+
     let mut total_messages: u64 = 0;
     let mut stats = Stats::new();
     let mut stats_printed_at = SystemTime::now();
@@ -282,9 +289,15 @@ async fn main() {
                     input_format,
                     &mut magnitude_buffer,
                 );
-                let messages = readsb::demod::demodulate2400(
-                    &magnitude_buffer, count, 0,
+                let demod_config = DemodConfig {
+                    preamble_threshold,
+                    fix_df: false,
+                    auto_gain: agc,
+                };
+                let demod_result = readsb::demod::demodulate2400_v2(
+                    &magnitude_buffer, count, &demod_config,
                 );
+
                 if let Some((ac_code, _spi)) = readsb::demod::demodulate_ac(&magnitude_buffer) {
                     let _ = ac_code;
                 }
@@ -294,10 +307,10 @@ async fn main() {
                     .as_millis() as i64;
                 let now_monotonic = Instant::now();
 
-                for (raw_msg, signal) in &messages {
-                    let msgbits = raw_msg.len() * 8;
+                for msg in &demod_result.messages {
+                    let msgbits = msg.bytes.len() * 8;
                     if let Some(result) = readsb::modes::parse_modes_message(
-                        raw_msg, msgbits, &crc_engine, *signal,
+                        &msg.bytes, msgbits, &crc_engine, msg.signal,
                     ) {
                         if result.crc_ok {
                             tracker.update_from_message(&result.message, now);
@@ -310,9 +323,10 @@ async fn main() {
                                 println!("{}", line);
                             }
 
-                            let beast_data = encode_beast_output(raw_msg, *signal);
+                            let timestamp_us = start_time.elapsed().as_micros() as i64;
+                            let beast_data = encode_beast_output(&msg.bytes, msg.signal, timestamp_us);
                             let _ = beast_tx.send(beast_data);
-                            let hex_data = readsb::net::protocols::hex::encode_hex_output(raw_msg);
+                            let hex_data = readsb::net::protocols::hex::encode_hex_output(&msg.bytes);
                             let _ = hex_tx.send(hex_data);
                         }
                     }
@@ -321,6 +335,22 @@ async fn main() {
                 stats.samples_processed += count as u64;
                 stats.messages_total = total_messages as u32;
                 stats.unique_aircraft = tracker.registry.len() as u32;
+
+                // Auto-gain control
+                if agc && count > 0 {
+                    let s = &demod_result.stats;
+                    if s.loud_events > s.noise_high_samples * 10 {
+                        let new_gain = (current_gain - 1.0).max(0.0);
+                        info!("AGC: reducing gain {:.1} → {:.1}", current_gain, new_gain);
+                        current_gain = new_gain;
+                        let _ = sdr.set_gain(current_gain).await;
+                    } else if s.noise_low_samples > (count as u32 / 2) {
+                        let new_gain = (current_gain + 1.0).min(50.0);
+                        info!("AGC: increasing gain {:.1} → {:.1}", current_gain, new_gain);
+                        current_gain = new_gain;
+                        let _ = sdr.set_gain(current_gain).await;
+                    }
+                }
 
                 // Periodic low/medium console output
                 let now_monotonic = Instant::now();

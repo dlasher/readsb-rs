@@ -24,7 +24,7 @@ fn start_mock_rtl_tcp_server(port: u16) -> std::thread::JoinHandle<()> {
             let _param = u32::from_be_bytes([cmd_buf[1], cmd_buf[2], cmd_buf[3], cmd_buf[4]]);
 
             // Echo back: RTL-TCP server echoes the command bytes
-            if let Err(_) = stream.write_all(&cmd_buf) {
+            if stream.write_all(&cmd_buf).is_err() {
                 break;
             }
         }
