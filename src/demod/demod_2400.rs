@@ -176,6 +176,14 @@ pub fn score_modes_message(msg: &[u8], msgbits: usize) -> i32 {
             }
             return -1;
         }
+        if let Some(info) = engine.diagnose(syndrome) {
+            let icao = ((msg[1] as u32) << 16) | ((msg[2] as u32) << 8) | (msg[3] as u32);
+            let known = crate::demod::icao_filter::icao_filter_test(icao);
+            match info.errors {
+                1 => return if known { 700 } else { 500 },
+                _ => return -2,
+            }
+        }
         return -2;
     }
 
@@ -189,6 +197,8 @@ pub fn score_modes_message(msg: &[u8], msgbits: usize) -> i32 {
             if iid == 0 {
                 return 750;
             }
+            let known = crate::demod::icao_filter::icao_filter_test(icao);
+            return if known { 700 } else { 500 };
         }
         if let Some(info) = engine.diagnose(syndrome) {
             if info.errors <= 1 && crate::demod::icao_filter::icao_filter_test(icao) {

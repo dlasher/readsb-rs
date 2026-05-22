@@ -1,5 +1,37 @@
 # Changelog
 
+## [0.9.0] - 2026-05-22
+
+### Fixed
+- **CRC_FAIL frames dropped from Beast/Hex output**: Output pipeline gated on
+  `result.crc_ok`, silently dropping all CRC_FAIL frames. Beast and Hex encoders
+  now receive all parser outputs (CRC_OK and CRC_FAIL). Tracker and console
+  output still gate on crc_ok. `src/main.rs`
+- **AP short frames (DF0/4/5/16/20/21) rejected on CRC error**: `score_modes_message`
+  returned `-2` immediately for non-zero syndrome on AP frames, with no CRC
+  correction attempt. Added `engine.diagnose()` call for single-bit CRC repair.
+  `src/demod/demod_2400.rs`
+- **DF11 all-call with interrogator ID rejected on valid CRC**: DF11 frames with
+  IID != 0 and syndrome == 0 fell through to `return -2`. Added `return 500/700`
+  for valid-CRC DF11 with non-zero IID. `src/demod/demod_2400.rs`
+- **Live comparison collected windows sequentially**: `diff_live` called
+  `collect_window` for left, then right — covering disjoint time periods (zero
+  matches). Now spawns parallel threads for same-window collection.
+  `src/bin/beast-client.rs`
+
+### Added
+- **`--output <path>` flag**: Redirects compare diff output to a file.
+  `src/bin/beast-client.rs`
+- **Matched-varying counter**: DF17/DF18/DF19 with differing payloads are counted
+  as matched-varying (silent) instead of diff (printed). Summary line:
+  `Matched: N, Matched-varying: M, Diff: D, Left-only: L, Right-only: R`.
+  `src/bin/beast-client.rs`
+- **Progress ticker**: Live window collection shows elapsed time on stderr, with
+  10-second markers. `src/bin/beast-client.rs`
+
+### Changed
+- Version 0.8.0 → 0.9.0
+
 ## [0.8.0] - 2026-05-21
 
 ### Added

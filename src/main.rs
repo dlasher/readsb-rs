@@ -323,13 +323,14 @@ async fn main() {
                             for line in outputter.feed(&result.message, now_monotonic) {
                                 println!("{}", line);
                             }
-
-                            let timestamp_us = start_time.elapsed().as_micros() as i64;
-                            let beast_data = encode_beast_output(&msg.bytes, msg.signal, timestamp_us);
-                            let _ = beast_tx.send(beast_data);
-                            let hex_data = readsb::net::protocols::hex::encode_hex_output(&msg.bytes);
-                            let _ = hex_tx.send(hex_data);
                         }
+
+                        // Always output to Beast/Hex (even CRC_FAIL) to match readsb-C
+                        let timestamp_us = start_time.elapsed().as_micros() as i64;
+                        let beast_data = encode_beast_output(&msg.bytes, msg.signal, timestamp_us);
+                        let _ = beast_tx.send(beast_data);
+                        let hex_data = readsb::net::protocols::hex::encode_hex_output(&msg.bytes);
+                        let _ = hex_tx.send(hex_data);
                     }
                 }
                 tracker.remove_stale(now);
