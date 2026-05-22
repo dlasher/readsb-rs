@@ -8,7 +8,7 @@
 - No formatter/clippy config — uses default toolchain rules
 
 ## Test layout
-- **121 total**: 91 integration (`tests/`) + 30 unit (`src/console/`)
+- **192 total**: 162 integration (`tests/`) + 30 unit (`src/console/`)
 - `tests/tracking_compat/` is a directory — contains `test_aircraft.rs`, `test_tracker.rs`, `test_validity.rs` (24 tests total)
 - Console module tests live inline in `src/console/*.rs` (not in tests/)
 
@@ -23,7 +23,6 @@
 - Binary releases only on `v*` tag push (CI checks `startsWith(github.ref, 'refs/tags/')`)
 - Docker images pushed to GHCR on every main push (latest + semver tags)
 - `--gain auto` must be skipped — docker-entrypoint.sh handles this
-- v0.4.0 was committed but **never tagged**
 
 ## Console output quirks
 - Controlled via `CONSOLE_LEVEL` env var (low/medium/high/max) + SIGUSR1 (forward) / SIGUSR2 (backward)
