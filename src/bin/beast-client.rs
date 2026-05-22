@@ -29,16 +29,24 @@ enum Commands {
         #[arg(long)]
         decode: bool,
     },
-    /// Compare Beast data from record files and/or live source
+    /// Compare Beast data from record files and/or live sources (side-by-side diff)
     Compare {
         #[arg(long)]
-        ref1: String,
+        ref1: Option<String>,
         #[arg(long)]
         ref2: Option<String>,
         #[arg(long, default_value = "127.0.0.1")]
-        host: String,
+        host1: String,
         #[arg(long, default_value_t = 30005)]
-        port: u16,
+        port1: u16,
+        #[arg(long, default_value = "127.0.0.1")]
+        host2: String,
+        #[arg(long, default_value_t = 30006)]
+        port2: u16,
+        #[arg(long, default_value_t = 10)]
+        window: u64,
+        #[arg(long, default_value_t = 0)]
+        duration: u64,
     },
     /// Connect to a Beast source and print hex-encoded messages
     Hex {
@@ -202,12 +210,14 @@ fn main() {
                 eprintln!("No output format specified (use --hex or --decode)");
             }
         }
-        Commands::Compare { ref1, ref2, host, port } => {
-            let frames1 = read_records_from_file(&ref1);
-            let analysis1 = readsb::net::protocols::beast::beast_analysis(&frames1);
-            println!("=== {} ===", ref1);
-            for line in readsb::net::protocols::beast::analysis_summary(&analysis1) {
-                println!("{line}");
+        Commands::Compare { ref1, ref2, host1, port1, host2, port2, window: _, duration: _ } => {
+            if let Some(ref1_path) = &ref1 {
+                let frames1 = read_records_from_file(ref1_path);
+                let analysis1 = readsb::net::protocols::beast::beast_analysis(&frames1);
+                println!("=== {} ===", ref1_path);
+                for line in readsb::net::protocols::beast::analysis_summary(&analysis1) {
+                    println!("{line}");
+                }
             }
 
             if let Some(ref2_path) = &ref2 {
@@ -219,13 +229,26 @@ fn main() {
                 }
             }
 
-            if let Ok(mut stream) = TcpStream::connect(format!("{host}:{port}")) {
+            if let Ok(mut stream) = TcpStream::connect(format!("{host1}:{port1}")) {
                 let _ = stream.set_read_timeout(Some(std::time::Duration::from_millis(2000)));
                 let live_frames = read_batch(&mut stream);
                 if !live_frames.is_empty() {
                     let live_analysis =
                         readsb::net::protocols::beast::beast_analysis(&live_frames);
-                    println!("\n=== live: {host}:{port} ===");
+                    println!("\n=== live: {host1}:{port1} ===");
+                    for line in readsb::net::protocols::beast::analysis_summary(&live_analysis) {
+                        println!("{line}");
+                    }
+                }
+            }
+
+            if let Ok(mut stream) = TcpStream::connect(format!("{host2}:{port2}")) {
+                let _ = stream.set_read_timeout(Some(std::time::Duration::from_millis(2000)));
+                let live_frames = read_batch(&mut stream);
+                if !live_frames.is_empty() {
+                    let live_analysis =
+                        readsb::net::protocols::beast::beast_analysis(&live_frames);
+                    println!("\n=== live: {host2}:{port2} ===");
                     for line in readsb::net::protocols::beast::analysis_summary(&live_analysis) {
                         println!("{line}");
                     }

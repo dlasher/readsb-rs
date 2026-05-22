@@ -92,3 +92,20 @@ fn test_beast_client_decode() {
     // Should parse DF17 ADS-B message and output the ICAO
     assert!(stdout.contains("4840D6"), "Should contain ICAO 4840D6: got '{}'", stdout);
 }
+
+#[test]
+fn test_compare_cli_new_flags() {
+    // Use localhost + high ports that will fail fast with ECONNREFUSED.
+    // This tests that CLI argument parsing succeeds; the binary will try to
+    // connect and fail, but that's fine — we only care about arg acceptance.
+    let output = beast_client()
+        .args(["compare", "--host1", "127.0.0.1", "--port1", "1",
+                "--host2", "127.0.0.1", "--port2", "2",
+                "--window", "5", "--duration", "30"])
+        .output().expect("Failed to run");
+    // The command should accept args, attempt connections (ECONNREFUSED quickly on localhost),
+    // and exit without crashing. We check for success — failure here means a CLI bug.
+    assert!(output.status.success(),
+        "compare with new flags should succeed: stderr={}",
+        String::from_utf8_lossy(&output.stderr));
+}
