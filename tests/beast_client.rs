@@ -109,3 +109,70 @@ fn test_compare_cli_new_flags() {
         "compare with new flags should succeed: stderr={}",
         String::from_utf8_lossy(&output.stderr));
 }
+
+// --- build_key_map tests ---
+
+#[test]
+fn test_build_key_map_empty() {
+    let frames: Vec<readsb::net::protocols::beast::BeastFrame> = vec![];
+    let result = readsb::net::protocols::beast::build_key_map(&frames);
+    assert!(result.is_empty(), "Empty frames should give empty map");
+}
+
+#[test]
+fn test_build_key_map_single() {
+    use readsb::net::protocols::beast::BeastFrame;
+    let frame = BeastFrame {
+        timestamp: 0,
+        frame_type: 0x32,
+        payload: vec![0x8D, 0x48, 0x40, 0xD6, 0x20, 0x2C, 0xC3],
+        rssi: 0xff,
+    };
+    let result = readsb::net::protocols::beast::build_key_map(&[frame]);
+    assert_eq!(result.len(), 1, "Single frame should produce one entry");
+    let key = (0x4840D6, 17u8); // ICAO=4840D6, DF=17 (0x8D >> 3)
+    assert!(result.contains_key(&key), "Should contain ICAO=4840D6 DF=17");
+    assert_eq!(result[&key].len(), 7, "Payload should be 7 bytes for short frame");
+}
+
+#[test]
+fn test_build_key_map_duplicate_keeps_last() {
+    use readsb::net::protocols::beast::BeastFrame;
+    let frame1 = BeastFrame {
+        timestamp: 0, frame_type: 0x32, rssi: 0xff,
+        payload: vec![0x8D, 0x48, 0x40, 0xD6, 0x20, 0x2C, 0xC3],
+    };
+    let frame2 = BeastFrame {
+        timestamp: 1, frame_type: 0x32, rssi: 0xff,
+        payload: vec![0x8D, 0x48, 0x40, 0xD6, 0xAA, 0xBB, 0xCC],
+    };
+    let result = readsb::net::protocols::beast::build_key_map(&[frame1, frame2]);
+    assert_eq!(result.len(), 1, "Duplicate ICAO+DF should produce one entry");
+    let key = (0x4840D6, 17u8);
+    assert_eq!(result[&key][6], 0xCC, "Should have last payload's trailing byte");
+}
+
+#[test]
+fn test_build_key_map_df_discrimination() {
+    use readsb::net::protocols::beast::BeastFrame;
+    let frame1 = BeastFrame {
+        timestamp: 0, frame_type: 0x32, rssi: 0xff,
+        payload: vec![0x8D, 0x48, 0x40, 0xD6, 0x20, 0x2C, 0xC3],
+    };
+    let frame2 = BeastFrame {
+        timestamp: 0, frame_type: 0x32, rssi: 0xff,
+        payload: vec![0x5D, 0x48, 0x40, 0xD6, 0xBC, 0xE0],
+    };
+    let result = readsb::net::protocols::beast::build_key_map(&[frame1, frame2]);
+    assert_eq!(result.len(), 2, "Same ICAO, different DF -> two entries");
+}
+
+#[test]
+fn test_format_hex_112bit() {
+    let payload = vec![0x8D, 0x48, 0x40, 0xD6, 0x20, 0x2C, 0xC3,
+                       0x71, 0xC3, 0x2C, 0xE0, 0x57, 0x60, 0x98];
+    let hex = readsb::net::protocols::beast::format_hex(&payload);
+    assert_eq!(hex.len(), 28, "14 bytes = 28 hex chars");
+    assert_eq!(&hex[..2], "8D", "First byte should be 8D");
+    assert!(hex.contains("4840D6"), "Should contain ICAO");
+}

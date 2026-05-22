@@ -6,6 +6,7 @@ pub struct BeastFrame {
     pub rssi: u8,
 }
 
+use std::collections::HashMap;
 use std::io::{self, Read};
 
 /// Read up to `max_frames` Beast frames from a byte stream.
@@ -235,4 +236,38 @@ pub fn encode_beast_output(data: &[u8], signal_level: f64, timestamp_us: i64) ->
     out.extend_from_slice(&escape_beast(data));
 
     out
+}
+
+/// Extract ICAO and DF type from a Beast frame payload.
+pub fn icao_df(payload: &[u8]) -> Option<(u32, u8)> {
+    if payload.len() < 4 {
+        return None;
+    }
+    let df = payload[0] >> 3;
+    let icao = ((payload[1] as u32) << 16)
+        | ((payload[2] as u32) << 8)
+        | (payload[3] as u32);
+    Some((icao, df))
+}
+
+/// Build a map from (ICAO, DF) → payload for diffing.
+/// Duplicate ICAO+DF entries keep the last payload.
+pub fn build_key_map(frames: &[BeastFrame]) -> HashMap<(u32, u8), Vec<u8>> {
+    let mut map = HashMap::new();
+    for frame in frames {
+        if let Some(key) = icao_df(&frame.payload) {
+            map.insert(key, frame.payload.clone());
+        }
+    }
+    map
+}
+
+/// Return full hex representation for display.
+pub fn format_hex(payload: &[u8]) -> String {
+    payload.iter().map(|b| format!("{:02X}", b)).collect::<String>()
+}
+
+/// Format a single line for the left column: "ICAO DFxx: HEX"
+pub fn format_line(key: &(u32, u8), payload: &[u8]) -> String {
+    format!("{:06X} DF{:02}: {}", key.0, key.1, format_hex(payload))
 }
