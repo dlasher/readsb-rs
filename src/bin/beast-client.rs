@@ -167,8 +167,7 @@ fn collect_window(host: &str, port: u16, window_secs: u64) -> Vec<readsb::net::p
             return vec![];
         }
     };
-    let timeout_ms = (window_secs * 1000).max(1000);
-    let _ = stream.set_read_timeout(Some(Duration::from_millis(timeout_ms)));
+    let _ = stream.set_read_timeout(Some(Duration::from_millis(250)));
     let mut all_frames = Vec::new();
     let start = Instant::now();
     let deadline = Duration::from_secs(window_secs);
@@ -186,7 +185,6 @@ fn collect_window(host: &str, port: u16, window_secs: u64) -> Vec<readsb::net::p
             Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock
                 || e.kind() == std::io::ErrorKind::TimedOut =>
             {
-                break;
             }
             Err(e) => {
                 eprintln!("Read error from {addr}: {e}");
@@ -444,10 +442,10 @@ fn main() {
                     }
                 }
                 (Some(f1), None) => {
-                    diff_file_live(f1, &host1, port1, window, duration);
+                    diff_file_live(f1, &host2, port2, window, duration);
                 }
                 (None, Some(f2)) => {
-                    diff_file_live(f2, &host2, port2, window, duration);
+                    diff_file_live(f2, &host1, port1, window, duration);
                 }
                 (None, None) => {
                     diff_live(&host1, port1, &host2, port2, window, duration);

@@ -254,3 +254,51 @@ fn test_compare_two_live() {
     // Matched: 1 per window (DF17 matched)
     assert!(stdout.contains("Matched: 1"), "Should show matched count");
 }
+
+#[test]
+fn test_compare_file_live() {
+    use readsb::net::protocols::beast::BeastFrame;
+    use std::fs;
+
+    let frame = BeastFrame {
+        timestamp: 1000,
+        frame_type: 0x32,
+        payload: vec![0x8D, 0x48, 0x40, 0xD6, 0x20, 0x2C, 0xC3,
+                       0x71, 0xC3, 0x2C, 0xE0, 0x57, 0x60, 0x98],
+        rssi: 0xff,
+    };
+    let record = readsb::net::protocols::beast::encode_record(&frame);
+    let file_path = "/tmp/test_compare_file_live.bin";
+    fs::write(file_path, &record).expect("Failed to write test file");
+
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+
+    let mut live_buf = Vec::new();
+    live_buf.push(0x1a); live_buf.push(0x32);
+    live_buf.extend_from_slice(&[0u8; 6]);
+    live_buf.push(0xff);
+    live_buf.extend_from_slice(&[0x8D, 0x48, 0x40, 0xD6, 0x20, 0x2C, 0xC3,
+                                  0x71, 0xC3, 0x2C, 0xE0, 0x57, 0x60, 0x98]);
+
+    std::thread::spawn(move || {
+        while let Ok((mut stream, _)) = listener.accept() {
+            let _ = stream.write_all(&live_buf);
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+    });
+    std::thread::sleep(std::time::Duration::from_millis(100));
+
+    let output = beast_client()
+        .args(["compare", "--ref1", file_path,
+               "--host2", "127.0.0.1", "--port2", &port.to_string(),
+               "--window", "1", "--duration", "3"])
+        .output().expect("Failed to run compare file/live");
+    assert!(output.status.success(),
+        "file/live compare should succeed: stderr={}",
+        String::from_utf8_lossy(&output.stderr));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("4840D6"), "Output should contain ICAO 4840D6: got '{}'", stdout);
+
+    let _ = fs::remove_file(file_path);
+}

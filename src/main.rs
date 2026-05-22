@@ -271,7 +271,7 @@ async fn main() {
         }
     }
 
-    let preamble_threshold = config.preamble_threshold.unwrap_or(32768);
+    let preamble_threshold = config.preamble_threshold.unwrap_or(58);
     let agc = config.agc;
     let mut current_gain = config.gain.unwrap_or(49.6);
 
@@ -297,6 +297,7 @@ async fn main() {
                 let demod_result = readsb::demod::demodulate2400_v2(
                     &magnitude_buffer, count, &demod_config,
                 );
+
 
                 if let Some((ac_code, _spi)) = readsb::demod::demodulate_ac(&magnitude_buffer) {
                     let _ = ac_code;

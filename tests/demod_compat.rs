@@ -135,13 +135,15 @@ fn test_icao_filter_unknown() {
 use readsb::demod::check_preamble;
 
 #[test]
-fn test_preamble_detects_valid_alignment_phase0() {
-    // Build a magnitude buffer with a preamble at phase 0 alignment.
-    // Preamble pulses at samples 0, 2, 7, 9 (peak magnitude), gaps near zero.
+fn test_preamble_detects_valid_alignment_phase4() {
+    // Build a magnitude buffer with a preamble at 2.4 MHz alignment (phase 4).
+    // From readsb-C: phase 4 pattern is 1/5\0/4\2 0 0 0 0/4\2 2/4\0 0 0 0 0 0 0 X0
+    // Samples: [1,5,0,4,2,0,0,0,0,4,2,2,4,0,0,0,0,0,0,0]
+    // Pre-check: pa[1]=5 > pa[7]=0, pa[12]=4 > pa[14]=0, pa[12]=4 > pa[15]=0
     let preamble: [u16; 20] = [
-        5000, 50, 5000, 50, 50, 50, 50,
-        5000, 50, 5000, 50, 50, 50, 50,
-        50, 50, 50, 50, 50, 50,
+        1, 5, 0, 4, 2, 0, 0, 0,
+        0, 4, 2, 2, 4, 0, 0, 0,
+        0, 0, 0, 0,
     ];
     assert!(check_preamble(&preamble, 0), "Valid preamble must be detected");
 }
@@ -299,14 +301,14 @@ use readsb::demod::score_phase;
 #[test]
 fn test_score_phase_returns_none_for_empty_buffer() {
     let mag: Vec<u16> = vec![];
-    let result = score_phase(0, &mag, 0, 112);
+    let result = score_phase(0, &mag, 0);
     assert!(result.is_none(), "Empty buffer should return None");
 }
 
 #[test]
 fn test_score_phase_returns_none_for_too_short_buffer() {
     let mag = [0u16; 10];
-    let result = score_phase(0, &mag, 0, 112);
+    let result = score_phase(0, &mag, 0);
     assert!(result.is_none(), "Too-short buffer should return None");
 }
 
@@ -317,7 +319,7 @@ use readsb::demod::{DemodConfig};
 #[test]
 fn test_demod_result_new_demod_config() {
     let config = DemodConfig::new();
-    assert_eq!(config.preamble_threshold, 32768);
+    assert_eq!(config.preamble_threshold, 58);
 }
 
 #[test]
