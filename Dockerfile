@@ -5,13 +5,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     rm -rf /var/lib/apt/lists/*
 COPY Cargo.toml Cargo.lock ./
 COPY src/ src/
-RUN cargo build --release --locked
+RUN cargo build --release --locked --bin readsb --bin beast-client
 
 FROM debian:bookworm-slim
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libncurses6 libzstd1 ca-certificates librtlsdr0 libusb-1.0-0 && \
     rm -rf /var/lib/apt/lists/*
 COPY --from=builder /app/target/release/readsb /usr/local/bin/
+COPY --from=builder /app/target/release/beast-client /usr/local/bin/
 COPY docker-entrypoint.sh /usr/local/bin/
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 EXPOSE 30002 30003 30005
