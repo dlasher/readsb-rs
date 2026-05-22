@@ -1,7 +1,9 @@
 use clap::{Parser, Subcommand};
+use std::collections::HashMap;
 use std::fs::{self, File};
 use std::io::{ErrorKind, Write};
 use std::net::TcpStream;
+use std::time::{Duration, Instant};
 
 #[derive(Parser)]
 #[command(name = "beast-client", version = "0.7.0")]
@@ -156,6 +158,218 @@ fn read_records_from_file(path: &str) -> Vec<readsb::net::protocols::beast::Beas
     frames
 }
 
+fn collect_window(host: &str, port: u16, window_secs: u64) -> Vec<readsb::net::protocols::beast::BeastFrame> {
+    let addr = format!("{}:{}", host, port);
+    let mut stream = match TcpStream::connect(&addr) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("Connection failed to {addr}: {e}");
+            return vec![];
+        }
+    };
+    let timeout_ms = (window_secs * 1000).max(1000);
+    let _ = stream.set_read_timeout(Some(Duration::from_millis(timeout_ms)));
+    let mut all_frames = Vec::new();
+    let start = Instant::now();
+    let deadline = Duration::from_secs(window_secs);
+    loop {
+        if start.elapsed() >= deadline {
+            break;
+        }
+        match readsb::net::protocols::beast::read_beast_frames(&mut stream, 1000) {
+            Ok(frames) => {
+                all_frames.extend(frames);
+                if all_frames.len() >= 1000 {
+                    break;
+                }
+            }
+            Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock
+                || e.kind() == std::io::ErrorKind::TimedOut =>
+            {
+                break;
+            }
+            Err(e) => {
+                eprintln!("Read error from {addr}: {e}");
+                break;
+            }
+        }
+    }
+    all_frames
+}
+
+fn print_window_diff(
+    left_map: &HashMap<(u32, u8), Vec<u8>>,
+    right_map: &HashMap<(u32, u8), Vec<u8>>,
+) -> (usize, usize, usize, usize) {
+    let mut matched = 0usize;
+    let mut diff = 0usize;
+    let mut left_only = 0usize;
+    let mut right_only = 0usize;
+
+    let mut keys: Vec<&(u32, u8)> = left_map.keys().collect();
+    for k in right_map.keys() {
+        if !keys.contains(&k) {
+            keys.push(k);
+        }
+    }
+    keys.sort();
+
+    for key in &keys {
+        let left_payload = left_map.get(key);
+        let right_payload = right_map.get(key);
+        match (left_payload, right_payload) {
+            (Some(l), Some(r)) if l == r => {
+                matched += 1;
+            }
+            (Some(l), Some(r)) => {
+                diff += 1;
+                let left_str = format!("  {}", readsb::net::protocols::beast::format_line(key, l));
+                let right_str = readsb::net::protocols::beast::format_line(key, r);
+                println!("{:<51}|  {}", left_str, right_str);
+            }
+            (None, Some(r)) => {
+                right_only += 1;
+                let right_str = readsb::net::protocols::beast::format_line(key, r);
+                println!("{:>60}>  {}", "", right_str);
+            }
+            (Some(l), None) => {
+                left_only += 1;
+                let left_str = format!("  {}", readsb::net::protocols::beast::format_line(key, l));
+                println!("{:<60}<", left_str);
+            }
+            (None, None) => unreachable!(),
+        }
+    }
+    (matched, diff, left_only, right_only)
+}
+
+fn diff_live(
+    left_host: &str,
+    left_port: u16,
+    right_host: &str,
+    right_port: u16,
+    window_secs: u64,
+    duration_secs: u64,
+) {
+    let mut elapsed_secs = 0u64;
+    let mut cum_matched = 0usize;
+    let mut cum_diff = 0usize;
+    let mut cum_left_only = 0usize;
+    let mut cum_right_only = 0usize;
+
+    loop {
+        if duration_secs > 0 && elapsed_secs >= duration_secs {
+            break;
+        }
+        let left_frames = collect_window(left_host, left_port, window_secs);
+        let right_frames = collect_window(right_host, right_port, window_secs);
+
+        let left_map = readsb::net::protocols::beast::build_key_map(&left_frames);
+        let right_map = readsb::net::protocols::beast::build_key_map(&right_frames);
+
+        let start_sec = elapsed_secs;
+        elapsed_secs += window_secs;
+        let end_sec = elapsed_secs.min(duration_secs);
+
+        println!(
+            "=== Window {}-{}s (L: {}, R: {}) ===",
+            start_sec,
+            end_sec,
+            left_frames.len(),
+            right_frames.len()
+        );
+
+        if left_frames.is_empty() && right_frames.is_empty() {
+            println!("(no frames)");
+            std::thread::sleep(Duration::from_millis(200));
+            continue;
+        }
+
+        let (matched, diff, left_only, right_only) =
+            print_window_diff(&left_map, &right_map);
+        println!(
+            "--- Matched: {}, Diff: {}, Left-only: {}, Right-only: {} ---",
+            matched, diff, left_only, right_only
+        );
+
+        cum_matched += matched;
+        cum_diff += diff;
+        cum_left_only += left_only;
+        cum_right_only += right_only;
+
+        std::thread::sleep(Duration::from_millis(200));
+    }
+
+    if cum_matched > 0 || cum_diff > 0 || cum_left_only > 0 || cum_right_only > 0 {
+        println!(
+            "\n=== Final: Matched: {}, Diff: {}, Left-only: {}, Right-only: {} ===",
+            cum_matched, cum_diff, cum_left_only, cum_right_only
+        );
+    }
+}
+
+fn diff_file_live(
+    left_frames: Vec<readsb::net::protocols::beast::BeastFrame>,
+    right_host: &str,
+    right_port: u16,
+    window_secs: u64,
+    duration_secs: u64,
+) {
+    let left_map = readsb::net::protocols::beast::build_key_map(&left_frames);
+    let mut elapsed_secs = 0u64;
+    let mut cum_matched = 0usize;
+    let mut cum_diff = 0usize;
+    let mut cum_left_only = 0usize;
+    let mut cum_right_only = 0usize;
+
+    loop {
+        if duration_secs > 0 && elapsed_secs >= duration_secs {
+            break;
+        }
+        let right_frames = collect_window(right_host, right_port, window_secs);
+        let right_map = readsb::net::protocols::beast::build_key_map(&right_frames);
+
+        let start_sec = elapsed_secs;
+        elapsed_secs += window_secs;
+        let end_sec = elapsed_secs.min(duration_secs);
+
+        println!(
+            "=== Window {}-{}s (L: file[{}], R: {}) ===",
+            start_sec,
+            end_sec,
+            left_frames.len(),
+            right_frames.len()
+        );
+
+        if right_frames.is_empty() {
+            println!("(no right frames)");
+            std::thread::sleep(Duration::from_millis(200));
+            continue;
+        }
+
+        let (matched, diff, left_only, right_only) =
+            print_window_diff(&left_map, &right_map);
+        println!(
+            "--- Matched: {}, Diff: {}, Left-only: {}, Right-only: {} ---",
+            matched, diff, left_only, right_only
+        );
+
+        cum_matched += matched;
+        cum_diff += diff;
+        cum_left_only += left_only;
+        cum_right_only += right_only;
+
+        std::thread::sleep(Duration::from_millis(200));
+    }
+
+    if cum_matched > 0 || cum_diff > 0 || cum_left_only > 0 || cum_right_only > 0 {
+        println!(
+            "\n=== Final: Matched: {}, Diff: {}, Left-only: {}, Right-only: {} ===",
+            cum_matched, cum_diff, cum_left_only, cum_right_only
+        );
+    }
+}
+
 fn main() {
     let cli = Cli::parse();
     match cli.command {
@@ -210,48 +424,33 @@ fn main() {
                 eprintln!("No output format specified (use --hex or --decode)");
             }
         }
-        Commands::Compare { ref1, ref2, host1, port1, host2, port2, window: _, duration: _ } => {
-            if let Some(ref1_path) = &ref1 {
-                let frames1 = read_records_from_file(ref1_path);
-                let analysis1 = readsb::net::protocols::beast::beast_analysis(&frames1);
-                println!("=== {} ===", ref1_path);
-                for line in readsb::net::protocols::beast::analysis_summary(&analysis1) {
-                    println!("{line}");
-                }
-            }
+        Commands::Compare { ref1, ref2, host1, port1, host2, port2, window, duration } => {
+            let left_frames: Option<Vec<readsb::net::protocols::beast::BeastFrame>> =
+                ref1.as_ref().map(|f| read_records_from_file(f));
+            let right_frames: Option<Vec<readsb::net::protocols::beast::BeastFrame>> =
+                ref2.as_ref().map(|f| read_records_from_file(f));
 
-            if let Some(ref2_path) = &ref2 {
-                let frames2 = read_records_from_file(ref2_path);
-                let analysis2 = readsb::net::protocols::beast::beast_analysis(&frames2);
-                println!("\n=== {} ===", ref2_path);
-                for line in readsb::net::protocols::beast::analysis_summary(&analysis2) {
-                    println!("{line}");
-                }
-            }
-
-            if let Ok(mut stream) = TcpStream::connect(format!("{host1}:{port1}")) {
-                let _ = stream.set_read_timeout(Some(std::time::Duration::from_millis(2000)));
-                let live_frames = read_batch(&mut stream);
-                if !live_frames.is_empty() {
-                    let live_analysis =
-                        readsb::net::protocols::beast::beast_analysis(&live_frames);
-                    println!("\n=== live: {host1}:{port1} ===");
-                    for line in readsb::net::protocols::beast::analysis_summary(&live_analysis) {
+            match (left_frames, right_frames) {
+                (Some(f1), Some(f2)) => {
+                    let analysis1 = readsb::net::protocols::beast::beast_analysis(&f1);
+                    println!("=== {} ===", ref1.as_deref().unwrap_or("left"));
+                    for line in readsb::net::protocols::beast::analysis_summary(&analysis1) {
+                        println!("{line}");
+                    }
+                    let analysis2 = readsb::net::protocols::beast::beast_analysis(&f2);
+                    println!("\n=== {} ===", ref2.as_deref().unwrap_or("right"));
+                    for line in readsb::net::protocols::beast::analysis_summary(&analysis2) {
                         println!("{line}");
                     }
                 }
-            }
-
-            if let Ok(mut stream) = TcpStream::connect(format!("{host2}:{port2}")) {
-                let _ = stream.set_read_timeout(Some(std::time::Duration::from_millis(2000)));
-                let live_frames = read_batch(&mut stream);
-                if !live_frames.is_empty() {
-                    let live_analysis =
-                        readsb::net::protocols::beast::beast_analysis(&live_frames);
-                    println!("\n=== live: {host2}:{port2} ===");
-                    for line in readsb::net::protocols::beast::analysis_summary(&live_analysis) {
-                        println!("{line}");
-                    }
+                (Some(f1), None) => {
+                    diff_file_live(f1, &host1, port1, window, duration);
+                }
+                (None, Some(f2)) => {
+                    diff_file_live(f2, &host2, port2, window, duration);
+                }
+                (None, None) => {
+                    diff_live(&host1, port1, &host2, port2, window, duration);
                 }
             }
         }

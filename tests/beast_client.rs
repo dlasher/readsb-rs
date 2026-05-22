@@ -1,7 +1,7 @@
 use std::net::TcpListener;
 use std::process::Command;
 use std::thread;
-use std::io::Write;
+use std::io::{Read, Write};
 
 fn beast_client() -> Command {
     let exe = std::env::current_exe().unwrap();
@@ -175,4 +175,82 @@ fn test_format_hex_112bit() {
     assert_eq!(hex.len(), 28, "14 bytes = 28 hex chars");
     assert_eq!(&hex[..2], "8D", "First byte should be 8D");
     assert!(hex.contains("4840D6"), "Should contain ICAO");
+}
+
+#[test]
+fn test_compare_two_live() {
+    fn make_beast_frame(payload: &[u8]) -> Vec<u8> {
+        let mut buf = Vec::new();
+        buf.push(0x1a); buf.push(0x32);
+        buf.extend_from_slice(&[0u8; 6]);
+        buf.push(0xff);
+        buf.extend_from_slice(payload);
+        buf
+    }
+
+    let df17_payload: Vec<u8> = vec![0x8D, 0x48, 0x40, 0xD6, 0x20, 0x2C, 0xC3,
+                                      0x71, 0xC3, 0x2C, 0xE0, 0x57, 0x60, 0x98];
+    let df11_payload: Vec<u8> = vec![0x5D, 0x48, 0x40, 0xD6, 0xBC, 0xE0, 0x57];
+
+    // Left server: send one DF17 frame
+    let left_listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let left_port = left_listener.local_addr().unwrap().port();
+
+    // Right server: send the same DF17 plus a unique DF11
+    let right_listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let right_port = right_listener.local_addr().unwrap().port();
+
+    let left_data = make_beast_frame(&df17_payload);
+    let right_data = {
+        let mut b = make_beast_frame(&df17_payload);
+        b.extend_from_slice(&make_beast_frame(&df11_payload));
+        b
+    };
+
+    // MUST start listener threads BEFORE beast-client connects.
+    // collect_window() connects, reads, and disconnects per window iteration,
+    // and diff_live loops for the duration. We need to keep accepting new
+    // connections each time the client reconnects.
+    thread::spawn(move || {
+        loop {
+            if let Ok((mut stream, _)) = left_listener.accept() {
+                let _ = stream.write_all(&left_data);
+                // Wait for client to close (read returns 0 on disconnect)
+                let mut buf = [0u8; 1024];
+                let _ = stream.read(&mut buf);
+            }
+            thread::sleep(std::time::Duration::from_millis(10));
+        }
+    });
+    thread::spawn(move || {
+        loop {
+            if let Ok((mut stream, _)) = right_listener.accept() {
+                let _ = stream.write_all(&right_data);
+                let mut buf = [0u8; 1024];
+                let _ = stream.read(&mut buf);
+            }
+            thread::sleep(std::time::Duration::from_millis(10));
+        }
+    });
+
+    // Ensure listener threads are in accept() before spawning beast-client
+    thread::sleep(std::time::Duration::from_millis(200));
+
+    let output = beast_client()
+        .args(["compare",
+               "--host1", "127.0.0.1", "--port1", &left_port.to_string(),
+               "--host2", "127.0.0.1", "--port2", &right_port.to_string(),
+               "--window", "1", "--duration", "3"])
+        .output().expect("Failed to run compare");
+    eprintln!("stdout:\n{}", String::from_utf8_lossy(&output.stdout));
+    eprintln!("stderr:\n{}", String::from_utf8_lossy(&output.stderr));
+    assert!(output.status.success(),
+        "compare should succeed");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    // Must show ICAO
+    assert!(stdout.contains("4840D6"), "Should contain ICAO 4840D6");
+    // Right-only DF11 should appear with > marker
+    assert!(stdout.contains("DF11"), "Should show DF11 (right-only)");
+    // Matched: 1 per window (DF17 matched)
+    assert!(stdout.contains("Matched: 1"), "Should show matched count");
 }
