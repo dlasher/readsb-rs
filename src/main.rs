@@ -78,7 +78,8 @@ async fn main() {
     t.user_lat = config.lat.unwrap_or(0.0);
     t.user_lon = config.lon.unwrap_or(0.0);
     let tracker = Arc::new(t);
-    let crc_engine = Arc::new(CrcFixEngine::new(112));
+    let crc_engine_112 = Arc::new(CrcFixEngine::new(112));
+    let crc_engine_56 = Arc::new(CrcFixEngine::new(56));
 
     let (mut net_server, _beast_rx, _hex_rx, _sbs_rx) = NetworkServer::new(&[
         (&format!("{}:{}", config.net_bind_address.as_deref().unwrap_or("0.0.0.0"), config.net_ri_port), InputParser::Hex),
@@ -155,19 +156,24 @@ async fn main() {
     });
 
     let tracker_in = tracker.clone();
-    let crc_in = crc_engine.clone();
+    let crc_in_112 = crc_engine_112.clone();
+    let crc_in_56 = crc_engine_56.clone();
     let mut incoming_rx = incoming_tx.subscribe();
     tokio::spawn(async move {
         while let Ok(msg) = incoming_rx.recv().await {
             let msgbits = msg.data.len() * 8;
+            let engine = if msgbits == 112 { &*crc_in_112 } else { &*crc_in_56 };
             if let Some(result) = readsb::modes::parse_modes_message(
-                &msg.data, msgbits, &crc_in, 0.0,
+                &msg.data, msgbits, engine, 0.0,
             ) {
                 if result.crc_ok {
                     let now = SystemTime::now()
                         .duration_since(UNIX_EPOCH).unwrap_or_default()
                         .as_millis() as i64;
                     tracker_in.update_from_message(&result.message, now);
+                    if result.message.addr != 0 {
+                        readsb::demod::icao_filter::icao_filter_add(result.message.addr);
+                    }
                 }
             }
         }
@@ -310,11 +316,15 @@ async fn main() {
 
                 for msg in &demod_result.messages {
                     let msgbits = msg.bytes.len() * 8;
+                    let engine = if msgbits == 112 { &*crc_engine_112 } else { &*crc_engine_56 };
                     if let Some(result) = readsb::modes::parse_modes_message(
-                        &msg.bytes, msgbits, &crc_engine, msg.signal,
+                        &msg.bytes, msgbits, engine, msg.signal,
                     ) {
                         if result.crc_ok {
                             tracker.update_from_message(&result.message, now);
+                            if result.message.addr != 0 {
+                                readsb::demod::icao_filter::icao_filter_add(result.message.addr);
+                            }
                             total_messages += 1;
 
                             // Outputter feed — per-message console output
@@ -379,7 +389,8 @@ async fn main() {
             Ok(_) => {}
             Err(e) => {
                 warn!("SDR read error: {}", e);
-                break;
+                tokio::time::sleep(Duration::from_millis(100)).await;
+                continue;
             }
         }
     }

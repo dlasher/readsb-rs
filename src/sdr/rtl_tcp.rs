@@ -123,11 +123,24 @@ impl RtlTcpClient {
         self.gain_db = gain;
     }
 
-    /// Read samples from the stream
+    /// Read samples from the stream, looping until the buffer is full
     pub async fn read_samples(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         match &mut self.stream {
             Some(stream) => {
-                stream.read(buf).await
+                let mut total = 0usize;
+                while total < buf.len() {
+                    match stream.read(&mut buf[total..]).await {
+                        Ok(0) => break, // EOF
+                        Ok(n) => total += n,
+                        Err(ref e) if e.kind() == io::ErrorKind::WouldBlock
+                            || e.kind() == io::ErrorKind::TimedOut => {
+                            if total > 0 { break; } // return what we have
+                            continue;
+                        }
+                        Err(e) => return Err(e),
+                    }
+                }
+                Ok(total)
             }
             None => {
                 Err(io::Error::new(io::ErrorKind::NotConnected, "RTL-TCP connection not open"))

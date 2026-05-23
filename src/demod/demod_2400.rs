@@ -174,17 +174,17 @@ pub fn score_modes_message(msg: &[u8], msgbits: usize) -> i32 {
             if crate::demod::icao_filter::icao_filter_test(icao) {
                 return 1000;
             }
-            return -1;
+            return 700;
         }
         if let Some(info) = engine.diagnose(syndrome) {
             let icao = ((msg[1] as u32) << 16) | ((msg[2] as u32) << 8) | (msg[3] as u32);
             let known = crate::demod::icao_filter::icao_filter_test(icao);
             match info.errors {
                 1 => return if known { 700 } else { 500 },
-                _ => return -2,
+                _ => return 100,
             }
         }
-        return -2;
+        return 100;
     }
 
     if df == 11 {
@@ -204,8 +204,11 @@ pub fn score_modes_message(msg: &[u8], msgbits: usize) -> i32 {
             if info.errors <= 1 && crate::demod::icao_filter::icao_filter_test(icao) {
                 return 800;
             }
+            if info.errors <= 1 {
+                return 400;
+            }
         }
-        return -2;
+        return 100;
     }
 
     if df == 17 || df == 18 {
@@ -218,17 +221,17 @@ pub fn score_modes_message(msg: &[u8], msgbits: usize) -> i32 {
             match info.errors {
                 1 => return if known { 900 } else { 700 },
                 2 => return if known { 450 } else { 350 },
-                _ => return -2,
+                _ => return 100,
             }
         }
-        return -2;
+        return 100;
     }
 
     if df == 19 || df == 24 {
         if syndrome == 0 {
             return 1000;
         }
-        return -2;
+        return 100;
     }
 
     -2

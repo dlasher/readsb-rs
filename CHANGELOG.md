@@ -1,5 +1,40 @@
 # Changelog
 
+## [0.9.3] - 2026-05-23
+
+### Fixed
+- **Short frames can't correct CRC errors**: `CrcFixEngine` was only built for
+  112-bit messages. Single-bit errors in DF0/4/5/11 (56-bit) frames were never
+  corrected, causing missed altitude/squawk/ICAO updates. Now creates both 56
+  and 112-bit engines, selecting by `msgbits` at each call site.
+  `src/main.rs`
+- **Beast TCP input parser uses wrong frame marker**: `client.rs` parsed Beast
+  frames with `0x10` marker and wrong offsets, silently dropping all inbound
+  Beast data. Now uses `parse_beast_frame` from `beast.rs` which correctly
+  handles `0x1a` markers, 9-byte headers, and byte-stuffing.
+  `src/net/client.rs`
+- **RTL-TCP single `read()` returns partial data**: TCP `stream.read(buf)`
+  can return fewer bytes than the buffer size. Now loops until buffer is full
+  or EOF, matching readsb-C's read-all behavior.
+  `src/sdr/rtl_tcp.rs`
+
+## [0.9.2] - 2026-05-22
+
+### Fixed
+- **Unknown-ICAO frames discarded from demod**: `score_modes_message` returned -1
+  for DF0/4/5/16/20/21 with clean CRC and unknown ICAO. Now returns 700 (passes
+  through to output). `src/demod/demod_2400.rs`
+- **CRC_FAIL frames discarded from demod**: All DFs with uncorrectable CRC errors
+  returned -2, dropping valid-but-corrupt frames. Now returns 100 for low-scored
+  pass-through to CRC_FAIL output. `src/demod/demod_2400.rs`
+- **ICAO filter never populated**: `icao_filter_add()` was defined but never called
+  from the main pipeline. Known-aircraft scoring bonuses never applied. Now
+  populates filter on every CRC-OK message with a nonzero address.
+  `src/main.rs`
+- **SDR read errors abort the program**: Transient RTL-SDR errors caused `break`
+  and shutdown. Now logs warning, sleeps 100ms, and retries.
+  `src/main.rs`
+
 ## [0.9.1] - 2026-05-22
 
 ### Fixed

@@ -196,6 +196,31 @@ fn make_df11_frame(icao: u32, iid: u8) -> Vec<u8> {
     msg
 }
 
+/// Build a 56-bit (7-byte) short AP frame (DF0/4/5/16/20/21) for scoring tests.
+/// If `fix_crc` is true, computes correct CRC so syndrome=0.
+/// If false, leaves CRC bytes as zeros (simulating CRC_FAIL).
+fn make_short_ap_frame(icao: u32, df: u8, ca: u8, ac: u32, fix_crc: bool) -> Vec<u8> {
+    let mut msg = vec![0u8; 7];
+    msg[0] = (df << 3) | (ca & 0x07);
+    msg[1] = (icao >> 16) as u8;
+    msg[2] = (icao >> 8) as u8;
+    msg[3] = icao as u8;
+    if fix_crc {
+        msg[4] = ((ac >> 8) & 0x1F) as u8;
+        msg[5] = (ac & 0xFF) as u8;
+        let syndrome = modes_checksum(&msg, 56);
+        msg[4] = (syndrome >> 16) as u8;
+        msg[5] = (syndrome >> 8) as u8;
+        msg[6] = syndrome as u8;
+    } else {
+        // CRC field is 0 — syndrome will be non-zero (CRC_FAIL)
+        msg[4] = ((ac >> 8) & 0x1F) as u8;
+        msg[5] = (ac & 0xFF) as u8;
+        msg[6] = 0;
+    }
+    msg
+}
+
 #[test]
 fn test_score_df17_good_unknown() {
     let frame = make_df17_frame(0xAAA001, &[0; 7], 5);
@@ -249,7 +274,66 @@ fn test_score_unrepairable_crc() {
     icao_filter_add(0x111007);
     frame[4] ^= 0xFF;
     let score = score_modes_message(&frame, 112);
-    assert_eq!(score, -2, "Unrepairable CRC should score -2");
+    assert!(
+        score >= 0,
+        "Unrepairable CRC should now get low positive score, got {}",
+        score
+    );
+}
+
+// ===== Short AP frame scoring tests (Bug 1: CRC_FAIL emission) =====
+
+#[test]
+fn test_score_df0_crc_ok_unknown_icao_returns_non_negative() {
+    let frame = make_short_ap_frame(0xAA0001, 0, 0, 0, true);
+    let score = score_modes_message(&frame, 56);
+    assert!(
+        score >= 0,
+        "DF0 CRC=0 unknown ICAO should be >= 0, got {}",
+        score
+    );
+}
+
+#[test]
+fn test_score_df4_crc_fail_not_discarded() {
+    let frame = make_short_ap_frame(0xBB0002, 4, 0, 12800, false);
+    let score = score_modes_message(&frame, 56);
+    assert!(
+        score >= 0,
+        "DF4 CRC_FAIL should be >= 0, got {}",
+        score
+    );
+}
+
+#[test]
+fn test_score_df5_crc_ok_unknown_icao_returns_non_negative() {
+    let frame = make_short_ap_frame(0xCC0003, 5, 0, 0, true);
+    let score = score_modes_message(&frame, 56);
+    assert!(
+        score >= 0,
+        "DF5 CRC=0 unknown ICAO should be >= 0, got {}",
+        score
+    );
+}
+
+#[test]
+fn test_score_df17_crc_fail_not_discarded() {
+    let mut frame = make_df17_frame(0xDDD004, &[0; 7], 5);
+    frame[4] ^= 0xFF; // multi-bit corruption → unrepairable
+    let score = score_modes_message(&frame, 112);
+    assert!(
+        score >= 0,
+        "DF17 CRC_FAIL should be >= 0, got {}",
+        score
+    );
+}
+
+#[test]
+fn test_default_preamble_threshold_matches_readsb_c() {
+    // readsb-C default: PREAMBLE_THRESHOLD_DEFAULT = 58
+    let config = readsb::demod::DemodConfig::default();
+    assert_eq!(config.preamble_threshold, 58,
+        "Default preamble threshold must match readsb-C's PREAMBLE_THRESHOLD_DEFAULT (58)");
 }
 
 // ===== Demodulator tests =====
