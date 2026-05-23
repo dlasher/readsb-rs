@@ -1,5 +1,7 @@
 use async_trait::async_trait;
 use std::io;
+use rusb::UsbContext;
+use tracing::info;
 use super::traits::SdrDevice;
 
 pub struct RtlSdrDevice {
@@ -26,11 +28,49 @@ impl RtlSdrDevice {
             handle: None,
         }
     }
+
+    fn detach_kernel_driver(device_index: u32) -> io::Result<()> {
+        let context = rusb::Context::new().map_err(|e| io::Error::other(e.to_string()))?;
+        let devices = context.devices().map_err(|e| io::Error::other(e.to_string()))?;
+        let mut current_idx = 0u32;
+        for device in devices.iter() {
+            let desc = match device.device_descriptor() {
+                Ok(d) => d,
+                Err(_) => continue,
+            };
+            if !matches!(
+                (desc.vendor_id(), desc.product_id()),
+                (0x0bda, 0x2832) | (0x0bda, 0x2838)
+            ) {
+                continue;
+            }
+            if current_idx != device_index {
+                current_idx += 1;
+                continue;
+            }
+            let handle = device.open().map_err(|e| io::Error::other(e.to_string()))?;
+            if handle
+                .kernel_driver_active(0)
+                .map_err(|e| io::Error::other(e.to_string()))?
+            {
+                info!("Detaching kernel driver from interface 0");
+                handle
+                    .detach_kernel_driver(0)
+                    .map_err(|e| io::Error::other(e.to_string()))?;
+            }
+            return Ok(());
+        }
+        Err(io::Error::other(format!(
+            "No RTL-SDR device found at index {}",
+            device_index
+        )))
+    }
 }
 
 #[async_trait]
 impl SdrDevice for RtlSdrDevice {
     async fn open(&mut self) -> io::Result<()> {
+        Self::detach_kernel_driver(self.device_index)?;
         let mut h = rtl_sdr_rs::RtlSdr::open_with_index(self.device_index as usize)
             .map_err(|e| io::Error::other(e.to_string()))?;
         h.set_sample_rate(self.sample_rate)

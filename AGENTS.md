@@ -32,3 +32,6 @@
 ## Known issues
 - `benches/demod_bench.rs:5` — `u8 % 256` is dead code (bench placeholder, harmless)
 - Working on `main` branch — no develop branch
+
+## Available skills (global)
+- `github-workflows` at `~/.config/opencode/skills/github-workflows/SKILL.md` — CI/CD, releases, Docker for Rust/Go/Python projects

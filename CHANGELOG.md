@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.9.1] - 2026-05-22
+
+### Fixed
+- **RTL-SDR "Resource busy" on Linux**: `rtl-sdr-rs` v0.3.1 never detaches the
+  kernel driver before `claim_interface()`, returning `LIBUSB_ERROR_BUSY` when
+  `dvb_usb_rtl28xxu` is bound. readsb-rs now pre-emptively detaches the kernel
+  driver via `rusb` before opening the device. `src/sdr/rtlsdr.rs`
+
 ## [0.9.0] - 2026-05-22
 
 ### Fixed
