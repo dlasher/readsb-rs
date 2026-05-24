@@ -7,7 +7,7 @@ use readsb::stats::Stats;
 use readsb::net::NetworkServer;
 use readsb::net::server::InputParser;
 use readsb::net::protocols::beast::encode_beast_output;
-use readsb::demod::DemodConfig;
+use readsb::demod::{DemodConfig, InputFormat};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -61,6 +61,30 @@ fn cycle_level_u8(current: u8, forward: bool) -> u8 {
     }
 }
 
+fn bytes_per_iq_pair(format: InputFormat) -> usize {
+    match format {
+        InputFormat::U8 => 2,
+        InputFormat::SC16Q11 => 4,
+        InputFormat::SC16Q11M => 4,
+        InputFormat::F32 => 8,
+    }
+}
+
+#[derive(Default, Debug)]
+struct DiagSnapshot {
+    bytes_read: usize,
+    samples_processed: usize,
+    preamble_candidates: u32,
+    msg_count: u32,
+    crc_ok: u32,
+    crc_fail: u32,
+    iter_count: u64,
+}
+
+fn diagnostic_enabled() -> bool {
+    std::env::var("READSB_DIAGNOSTIC").as_deref() == Ok("1")
+}
+
 #[tokio::main]
 async fn main() {
     tracing_subscriber::fmt()
@@ -104,6 +128,13 @@ async fn main() {
         }
     };
 
+    let input_format_orig = input_format;
+    let input_format = match input_format {
+        InputFormat::SC16Q11M => InputFormat::SC16Q11,
+        other => other,
+    };
+    let bpiq = bytes_per_iq_pair(input_format);
+
     let mut sdr = SdrManager::new();
     let sdr_type = match config.ifile {
         Some(ref path) => SdrType::IFile(path.clone()),
@@ -132,6 +163,15 @@ async fn main() {
         }
     };
 
+    let read_target = match &sdr_type {
+        SdrType::RtlTcp(_, _) => std::env::var("READSB_TCP_CHUNK")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(262_144),
+        _ => 2 * 2_400_000,
+    };
+    info!("SDR read target: {} bytes per call", read_target);
+
     info!("Opening SDR device...");
     if let Err(e) = sdr.open(sdr_type).await {
         warn!("Failed to open SDR device: {}", e);
@@ -146,8 +186,29 @@ async fn main() {
         }
     }
 
-    let mut sample_buffer = vec![0u8; 2 * 2400000];
-    let mut magnitude_buffer = vec![0u16; 2400000];
+    const OVERLAP_SAMPLES: usize = 300;
+    let overlap_bytes = OVERLAP_SAMPLES * bpiq;
+    let mut sample_buffer = vec![0u8; read_target];
+    let combined_len = read_target + overlap_bytes;
+    let mut combined = vec![0u8; combined_len];
+    let max_samples = combined_len / bpiq;
+    let mut magnitude_buffer = vec![0u16; max_samples];
+    let mut overlap_tail = vec![128u8; overlap_bytes];
+
+    // SC16Q11M: strip 12-byte header from first read, prime overlap_tail
+    if let InputFormat::SC16Q11M = input_format_orig {
+        if let Ok(n) = sdr.read_samples(&mut sample_buffer).await {
+            if n > 12 {
+                let stripped_len = n - 12;
+                sample_buffer.copy_within(12..n, 0);
+                let tail_copy = overlap_bytes.min(stripped_len);
+                overlap_tail.copy_within(tail_copy.., 0);
+                overlap_tail[overlap_bytes - tail_copy..].copy_from_slice(
+                    &sample_buffer[stripped_len - tail_copy..stripped_len],
+                );
+            }
+        }
+    }
 
     let net_handle = tokio::spawn(async move {
         if let Err(e) = net_server.run().await {
@@ -285,16 +346,33 @@ async fn main() {
     let mut stats = Stats::new();
     let mut stats_printed_at = SystemTime::now();
 
+    let diag_enabled = diagnostic_enabled();
+    let mut diag = DiagSnapshot::default();
+    let mut diag_last_log = Instant::now();
+
     while !shutdown.load(Ordering::Relaxed) {
         let result = sdr.read_samples(&mut sample_buffer).await;
         if shutdown.load(Ordering::Relaxed) { break; }
         match result {
             Ok(n) if n > 0 => {
+                // Build combined buffer: overlap tail + new data
+                combined[..overlap_bytes].copy_from_slice(&overlap_tail);
+                combined[overlap_bytes..overlap_bytes + n].copy_from_slice(&sample_buffer[..n]);
+                let combined_len = overlap_bytes + n;
+
                 let count = readsb::demod::convert_to_magnitude(
-                    &sample_buffer[..n],
+                    &combined[..combined_len],
                     input_format,
                     &mut magnitude_buffer,
                 );
+
+                // Save tail for next iteration: last overlap_bytes of new data
+                let tail_copy = n.min(overlap_bytes);
+                if tail_copy > 0 {
+                    let keep = overlap_bytes - tail_copy;
+                    overlap_tail.copy_within(tail_copy.., 0);
+                    overlap_tail[keep..].copy_from_slice(&sample_buffer[n - tail_copy..n]);
+                }
                 let demod_config = DemodConfig {
                     preamble_threshold,
                     fix_df: false,
@@ -305,9 +383,18 @@ async fn main() {
                 );
 
 
-                if let Some((ac_code, _spi)) = readsb::demod::demodulate_ac(&magnitude_buffer) {
+                if let Some((ac_code, _spi)) = readsb::demod::demodulate_ac(&magnitude_buffer[..count]) {
                     let _ = ac_code;
                 }
+
+                if diag_enabled {
+                    diag.bytes_read = n;
+                    diag.samples_processed = count;
+                    diag.preamble_candidates = demod_result.stats.preamble_candidates;
+                    diag.msg_count = demod_result.messages.len() as u32;
+                    diag.iter_count += 1;
+                }
+
                 let now = SystemTime::now()
                     .duration_since(UNIX_EPOCH)
                     .unwrap_or_default()
@@ -320,6 +407,13 @@ async fn main() {
                     if let Some(result) = readsb::modes::parse_modes_message(
                         &msg.bytes, msgbits, engine, msg.signal,
                     ) {
+                        if diag_enabled {
+                            if result.crc_ok {
+                                diag.crc_ok += 1;
+                            } else {
+                                diag.crc_fail += 1;
+                            }
+                        }
                         if result.crc_ok {
                             tracker.update_from_message(&result.message, now);
                             if result.message.addr != 0 {
@@ -373,6 +467,23 @@ async fn main() {
                 }
                 for line in outputter.flush_medium(now_monotonic) {
                     println!("{}", line);
+                }
+
+                // Diagnostic counters
+                if diag_enabled && diag_last_log.elapsed() >= Duration::from_secs(5) {
+                    let elapsed = diag_last_log.elapsed().as_secs_f64().max(0.001);
+                    let reads_per_sec = diag.iter_count as f64 / elapsed;
+                    eprintln!(
+                        "DIAG: {}B {}samp {}pre {}msgs {}ok {}fail {:.1}rps",
+                        diag.bytes_read,
+                        diag.samples_processed,
+                        diag.preamble_candidates,
+                        diag.msg_count,
+                        diag.crc_ok,
+                        diag.crc_fail,
+                        reads_per_sec,
+                    );
+                    diag_last_log = Instant::now();
                 }
 
                 // Legacy stats — keep for backward compat (can be removed later)
