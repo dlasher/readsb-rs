@@ -12,10 +12,11 @@ fn bench_convert_sc16q11(c: &mut Criterion) {
 }
 
 fn bench_demodulate2400(c: &mut Criterion) {
+    use readsb::demod::MagBufStats;
     let mag: Vec<u16> = vec![100u16; 240000];
     c.bench_function("demodulate2400_noise", |b|
         b.iter(|| {
-            demodulate2400(&mag, mag.len(), 32768)
+            demodulate2400(&mag, mag.len(), 32768, &mut MagBufStats::default())
         })
     );
 }
