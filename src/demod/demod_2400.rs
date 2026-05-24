@@ -12,6 +12,7 @@ pub struct MagBufStats {
     pub loud_events: u32,
     pub noise_low_samples: u32,
     pub noise_high_samples: u32,
+    pub preamble_candidates: u32,
 }
 
 #[derive(Clone, Debug)]
@@ -245,7 +246,7 @@ pub fn check_preamble(mag: &[u16], _threshold: u32) -> bool {
 }
 
 #[allow(unused_assignments)]
-pub fn demodulate2400(mag: &[u16], mag_len: usize, preamble_threshold: u32) -> Vec<(Vec<u8>, f64)> {
+pub fn demodulate2400(mag: &[u16], mag_len: usize, preamble_threshold: u32, stats: &mut MagBufStats) -> Vec<(Vec<u8>, f64)> {
     let mut messages: Vec<(Vec<u8>, f64)> = Vec::new();
     let mut pa: usize = 0;
     let stop = mag_len.saturating_sub(MODES_LONG_MSG_SAMPLES + 16);
@@ -263,6 +264,7 @@ pub fn demodulate2400(mag: &[u16], mag_len: usize, preamble_threshold: u32) -> V
                 && mag[pa + 12] > mag[pa + 15]
             {
                 pre_found = true;
+                stats.preamble_candidates += 1;
                 break;
             }
             pa += 1;
@@ -340,12 +342,16 @@ pub fn demodulate2400(mag: &[u16], mag_len: usize, preamble_threshold: u32) -> V
 }
 
 pub fn demodulate2400_v2(mag: &[u16], count: usize, config: &DemodConfig) -> DemodResult {
-    let messages = demodulate2400(mag, count, config.preamble_threshold)
+    let mut stats = MagBufStats {
+        preamble_candidates: 0,
+        ..Default::default()
+    };
+    let messages = demodulate2400(mag, count, config.preamble_threshold, &mut stats)
         .into_iter()
         .map(|(bytes, signal)| Message { bytes, signal })
         .collect();
     DemodResult {
         messages,
-        stats: MagBufStats::default(),
+        stats,
     }
 }

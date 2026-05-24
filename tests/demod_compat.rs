@@ -339,24 +339,25 @@ fn test_default_preamble_threshold_matches_readsb_c() {
 // ===== Demodulator tests =====
 
 use readsb::demod::demodulate2400;
+use readsb::demod::MagBufStats;
 
 #[test]
 fn test_demod_no_messages_in_noise() {
     let noise: Vec<u16> = vec![100; 1000];
-    let msgs = demodulate2400(&noise, noise.len(), 32768);
+    let msgs = demodulate2400(&noise, noise.len(), 32768, &mut MagBufStats::default());
     assert!(msgs.is_empty());
 }
 
 #[test]
 fn test_demod_empty_buffer() {
-    let msgs = demodulate2400(&[], 0, 32768);
+    let msgs = demodulate2400(&[], 0, 32768, &mut MagBufStats::default());
     assert!(msgs.is_empty());
 }
 
 #[test]
 fn test_demod_small_buffer() {
     let small = [100u16; 50];
-    let msgs = demodulate2400(&small, small.len(), 32768);
+    let msgs = demodulate2400(&small, small.len(), 32768, &mut MagBufStats::default());
     assert!(msgs.is_empty());
 }
 
@@ -374,7 +375,7 @@ fn test_demod_preamble_with_noise_rejected() {
     buffer.extend_from_slice(&preamble);
     buffer.extend_from_slice(&padding);
 
-    let result = demodulate2400(&buffer, buffer.len(), 0);
+    let result = demodulate2400(&buffer, buffer.len(), 0, &mut MagBufStats::default());
     assert_eq!(result.len(), 0, "Noise after preamble should not produce valid messages");
 }
 
@@ -413,4 +414,22 @@ fn test_empty_noise_produces_zero_stats_with_demod_result() {
     assert!(result.messages.is_empty(), "No messages from noise");
     assert_eq!(result.stats.noise_low_samples + result.stats.noise_high_samples + result.stats.loud_events, 0,
         "Stats should be zero for uniform noise");
+}
+
+#[test]
+fn test_preamble_candidates_counted_in_demod_v2() {
+    // A preamble that triggers the pre-check conditions:
+    // mag[pa+1] > mag[pa+7], mag[pa+12] > mag[pa+14], mag[pa+12] > mag[pa+15]
+    // Buffer must be >= 269 + 16 = 285 samples to reach the scan loop
+    let preamble = [
+        100, 200, 100, 100, 100, 100, 100, 50,
+        100, 100, 100, 100, 300, 100, 50, 50,
+    ];
+    let mut buffer: Vec<u16> = Vec::with_capacity(300);
+    buffer.extend_from_slice(&preamble);
+    buffer.extend_from_slice(&vec![200u16; 284]);
+
+    let result = readsb::demod::demodulate2400_v2(&buffer, buffer.len(), &DemodConfig::default());
+    assert!(result.messages.is_empty(), "Noise should produce no valid messages");
+    assert!(result.stats.preamble_candidates > 0, "Preamble detector should have found candidates, got 0");
 }

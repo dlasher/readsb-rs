@@ -4,6 +4,7 @@ use super::ifile::IFileDevice;
 use super::rtlsdr::{MockSdrDevice, RtlSdrDevice};
 use super::rtl_tcp::RtlTcpClient;
 
+#[derive(Clone)]
 pub enum SdrType {
     IFile(String),
     RtlSdr(u32),

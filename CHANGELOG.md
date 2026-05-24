@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.9.4] - 2026-05-23
+
+### Added
+- **RTL_TCP overlap buffer**: 300-sample tail-overlap prepended to each SDR read,
+  recovering messages that straddle buffer boundaries. Byte width is format-derived
+  (2 for U8, 4 for SC16Q11, 8 for F32). SC16Q11M 12-byte header stripped once
+  before main loop. `src/main.rs`
+- **Smaller RTL_TCP reads**: Read target dynamically set to 262KB (matching USB's
+  ~55ms chunks) for RTL_TCP vs 4.8MB for USB/file. Configurable via `READSB_TCP_CHUNK`
+  env var. `src/main.rs`
+- **`READSB_DIAGNOSTIC=1`**: Per-iteration counters (bytes, samples, preamble
+  candidates, messages, CRC ok/fail, reads/sec) logged to stderr every 5 seconds.
+  `src/main.rs`
+- **Overlap assembly tests**: 6 tests covering all formats, edge cases (n=0,
+  n < overlap, n > overlap), magnitude conversion, SC16Q11 header skip.
+  `tests/overlap_compat.rs`
+
+### Changed
+- `MagBufStats::preamble_candidates` — now populated by counting `pre_found` hits
+  in `demodulate2400` (was dead code returning all zeros). `src/demod/demod_2400.rs`
+- `SdrType` derives `Clone` for use in read_target computation before `sdr.open()`.
+  `src/sdr/manager.rs`
+
 ## [0.9.3] - 2026-05-23
 
 ### Fixed
