@@ -2,3 +2,4 @@ target/
 *.o
 .DS_Store
 docs/
+.opencode/
