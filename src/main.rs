@@ -407,12 +407,21 @@ async fn main() {
                     preamble_threshold,
                     fix_df: false,
                     auto_gain: agc,
-                    multi_pass: true,
-                    multi_pass_margin: 0.8,
+                    multi_pass: config.multi_pass,
+                    multi_pass_margin: config.multi_pass_margin,
                 };
-                let demod_result = readsb::demod::demodulate2400_v2(
-                    &magnitude_buffer, count, &demod_config,
-                );
+
+                // Use multi-pass demodulation when enabled (default: true)
+                let demod_result = if config.multi_pass {
+                    let mut mag_copy = magnitude_buffer[..count].to_vec();
+                    readsb::demod::demodulate2400_multi_pass(
+                        &mut mag_copy, count, &demod_config,
+                    )
+                } else {
+                    readsb::demod::demodulate2400_v2(
+                        &magnitude_buffer[..count], count, &demod_config,
+                    )
+                };
 
 
                 if let Some((ac_code, _spi)) = readsb::demod::demodulate_ac(&magnitude_buffer[..count]) {
