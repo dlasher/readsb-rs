@@ -32,3 +32,15 @@ fn test_iformat_cu8() {
     };
     assert!(matches!(format, readsb::demod::InputFormat::U8));
 }
+
+#[test]
+fn test_ringbuf_size_config() {
+    let config = ReadsbConfig::parse_from(["readsb", "--ringbuf-size", "8388608"]);
+    assert_eq!(config.ringbuf_size, 8388608);
+}
+
+#[test]
+fn test_ringbuf_size_default() {
+    let config = ReadsbConfig::parse_from(["readsb"]);
+    assert_eq!(config.ringbuf_size, 4194304);
+}

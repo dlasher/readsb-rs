@@ -73,6 +73,8 @@ pub struct ReadsbConfig {
     pub decode_threads: u32,
     #[arg(long, env = "READSB_AGGRESSIVE")]
     pub aggressive: bool,
+    #[arg(long, default_value_t = 4194304, env = "READSB_RINGBUF_SIZE")]
+    pub ringbuf_size: usize,
 
     #[arg(long, env = "READSB_IFILE")]
     pub ifile: Option<String>,
