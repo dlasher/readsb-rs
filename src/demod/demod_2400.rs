@@ -1,10 +1,12 @@
 use std::sync::LazyLock;
 use crate::crc::{modes_checksum, CrcFixEngine};
+use crate::demod::noise_floor::adaptive_threshold;
 
 #[derive(Clone, Debug)]
 pub struct Message {
     pub bytes: Vec<u8>,
     pub signal: f64,
+    pub preamble_pos: usize,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -26,6 +28,8 @@ pub struct DemodConfig {
     pub preamble_threshold: u32,
     pub fix_df: bool,
     pub auto_gain: bool,
+    pub multi_pass: bool,
+    pub multi_pass_margin: f32,
 }
 
 impl Default for DemodConfig {
@@ -34,6 +38,8 @@ impl Default for DemodConfig {
             preamble_threshold: 58,
             fix_df: false,
             auto_gain: false,
+            multi_pass: true,
+            multi_pass_margin: 0.8,
         }
     }
 }
@@ -246,8 +252,8 @@ pub fn check_preamble(mag: &[u16], _threshold: u32) -> bool {
 }
 
 #[allow(unused_assignments)]
-pub fn demodulate2400(mag: &[u16], mag_len: usize, preamble_threshold: u32, stats: &mut MagBufStats) -> Vec<(Vec<u8>, f64)> {
-    let mut messages: Vec<(Vec<u8>, f64)> = Vec::new();
+pub fn demodulate2400(mag: &[u16], mag_len: usize, preamble_threshold: u32, stats: &mut MagBufStats) -> Vec<(Vec<u8>, f64, usize)> {
+    let mut messages: Vec<(Vec<u8>, f64, usize)> = Vec::new();
     let mut pa: usize = 0;
     let stop = mag_len.saturating_sub(MODES_LONG_MSG_SAMPLES + 16);
 
@@ -331,7 +337,7 @@ pub fn demodulate2400(mag: &[u16], mag_len: usize, preamble_threshold: u32, stat
         if let Some(msg) = best_msg {
             let signal = (mag[pa] as f64 + mag[pa + 2] as f64 + mag[pa + 7] as f64 + mag[pa + 9] as f64) / 4.0;
             let advance = msg.len() * 2;
-            messages.push((msg, signal));
+            messages.push((msg, signal, pa));
             pa += advance;
         } else {
             pa += 1;
@@ -348,10 +354,73 @@ pub fn demodulate2400_v2(mag: &[u16], count: usize, config: &DemodConfig) -> Dem
     };
     let messages = demodulate2400(mag, count, config.preamble_threshold, &mut stats)
         .into_iter()
-        .map(|(bytes, signal)| Message { bytes, signal })
+        .map(|(bytes, signal, preamble_pos)| Message { bytes, signal, preamble_pos })
         .collect();
     DemodResult {
         messages,
+        stats,
+    }
+}
+
+/// Multi-pass demodulation wrapper.
+/// Pass 0: Normal demodulation.
+/// Pass 1+: Subtract CRC-OK messages, re-demodulate with reduced threshold.
+pub fn demodulate2400_multi_pass(mag: &mut [u16], count: usize, config: &DemodConfig) -> DemodResult {
+    if !config.multi_pass {
+        return demodulate2400_v2(mag, count, config);
+    }
+
+    let mut all_messages: Vec<Message> = Vec::new();
+    let mut stats = MagBufStats::default();
+    let base_threshold = config.preamble_threshold as f32;
+    let margin = config.multi_pass_margin;
+    let noise_floor = crate::demod::noise_floor::estimate_noise_floor(mag);
+
+    let max_passes = 4;
+    for pass in 0..max_passes {
+        let threshold = if pass == 0 {
+            config.preamble_threshold
+        } else {
+            adaptive_threshold(pass as u32, base_threshold, margin, noise_floor.floor)
+        };
+
+        let result = demodulate2400(mag, count, threshold, &mut MagBufStats::default());
+
+        for (bytes, signal, preamble_pos) in result {
+            let icao = if bytes.len() >= 4 {
+                ((bytes[1] as u32) << 16) | ((bytes[2] as u32) << 8) | (bytes[3] as u32)
+            } else {
+                0
+            };
+
+            // Check CRC
+            let msgbits = bytes.len() * 8;
+            let syndrome = crate::crc::modes_checksum(&bytes, msgbits);
+            if syndrome != 0 {
+                // CRC failed — skip (don't subtract)
+                continue;
+            }
+
+            // CRC OK — add to results and subtract from mag buffer
+            let decoded = crate::demod::signal_subtraction::DecodedMessage {
+                bytes: bytes.clone(),
+                preamble_pos,
+                signal,
+                icao,
+            };
+            decoded.subtract_from(mag);
+
+            all_messages.push(Message {
+                bytes,
+                signal,
+                preamble_pos,
+            });
+            stats.preamble_candidates += 1;
+        }
+    }
+
+    DemodResult {
+        messages: all_messages,
         stats,
     }
 }

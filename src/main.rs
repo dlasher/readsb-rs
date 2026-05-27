@@ -407,6 +407,8 @@ async fn main() {
                     preamble_threshold,
                     fix_df: false,
                     auto_gain: agc,
+                    multi_pass: true,
+                    multi_pass_margin: 0.8,
                 };
                 let demod_result = readsb::demod::demodulate2400_v2(
                     &magnitude_buffer, count, &demod_config,
