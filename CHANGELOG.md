@@ -1,5 +1,40 @@
 # Changelog
 
+## [0.9.5] - 2026-05-27
+
+### Added
+- **`--ringbuf-size` / `READSB_RINGBUF_SIZE`**: RTL_TCP ring buffer capacity in bytes
+  (default 4MB, ~830ms at 2.4MSPS). Reduces 75% TCP overflow miss rate by decoupling
+  the SDR reader from the demodulator's blocking time. `src/config.rs`, `src/sdr/ringbuf.rs`
+- **`src/sdr/ringbuf.rs`**: Ring buffer module using `tokio::sync::mpsc::bounded(16)`
+  backpressure. A background reader task pushes 262KB chunks; main loop pops at its own
+  pace. Capacity is pre-allocated at startup to avoid runtime allocations.
+- **RTL_TCP split-stream reader**: `RtlTcpClient` now uses `TcpStream::into_split()`
+  to decouple read/write ownership. The write half is retained for `send_command`,
+  the read half is passed to a spawned background task that drives the ring buffer.
+- **`--multi-pass` / `READSB_MULTI_PASS`**: Enable multi-pass demodulation (default
+  `true`). Subtraction of CRC-OK messages from the magnitude buffer between passes,
+  recovering weak signals buried under stronger overlapping Mode-S bursts.
+- **`--multi-pass-margin` / `READSB_MULTI_PASS_MARGIN`**: Threshold reduction factor
+  per pass (default 0.8). Pass N threshold = `noise_floor * 1.5 * 0.8^N`, capped at
+  a minimum of `noise_floor * 1.5`. `src/config.rs`
+- **`src/demod/signal_subtraction.rs`**: `DecodedMessage::subtract_from()` reconstructs
+  the decoded Mode-S IQ pattern via phase/amplitude estimation and subtracts it from
+  the magnitude buffer. Exports `MODES_LONG_MSG_SAMPLES` (269), `MODES_LONG_MSG_BYTES`
+  (14), `MODES_SHORT_MSG_BYTES` (7) as `pub`.
+- **`src/demod/noise_floor.rs`**: O(n) 256-bin histogram noise estimation and
+  `adaptive_threshold()` for multi-pass threshold computation.
+
+### Changed
+- **`demodulate2400()` return type**: now returns `Vec<(Vec<u8>, f64, usize)>` — the
+  third element is the `preamble_pos` (sample index of the detected preamble peak).
+- **`demodulate2400_multi_pass()`**: new public function implementing up to 4 passes.
+  Pass 0 uses the normal threshold; subsequent passes clone the mag buffer and
+  re-demodulate with `adaptive_threshold()`. CRC-OK messages from each pass are
+  subtracted before the next pass.
+- **`DemodConfig` extended**: gains `multi_pass: bool` and `multi_pass_margin: f64`.
+  `src/demod/demod_2400.rs`, `src/main.rs`
+
 ## [0.9.4] - 2026-05-23
 
 ### Added
