@@ -70,8 +70,8 @@ const SLICE_OFFSETS: [[usize; 8]; 5] = [
     [0, 3, 5, 8, 10, 12, 15, 17],
 ];
 
-const SLICE_ADVANCE: [usize; 5] = [19, 19, 19, 19, 20];
-const SLICE_NEXT_PHASE: [usize; 5] = [1, 2, 3, 4, 0];
+pub const SLICE_ADVANCE: [usize; 5] = [19, 19, 19, 19, 20];
+pub const SLICE_NEXT_PHASE: [usize; 5] = [1, 2, 3, 4, 0];
 
 const SLICE_FUNC_MAP: [[usize; 8]; 5] = [
     [0, 2, 4, 1, 3, 0, 2, 4],
@@ -99,9 +99,9 @@ pub fn slice_byte(mag: &[u16], pos: &mut usize, phase: &mut usize) -> u8 {
     byte
 }
 
-const MODES_LONG_MSG_SAMPLES: usize = 269;
-const MODES_LONG_MSG_BYTES: usize = 14;
-const MODES_SHORT_MSG_BYTES: usize = 7;
+pub const MODES_LONG_MSG_SAMPLES: usize = 269;
+pub const MODES_LONG_MSG_BYTES: usize = 14;
+pub const MODES_SHORT_MSG_BYTES: usize = 7;
 
 const VALID_DF_SHORT: u32 = (1 << 0) | (1 << 4) | (1 << 5) | (1 << 11);
 const VALID_DF_LONG: u32 = (1 << 16) | (1 << 17) | (1 << 18) | (1 << 20) | (1 << 21);
