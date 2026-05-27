@@ -73,6 +73,10 @@ pub struct ReadsbConfig {
     pub decode_threads: u32,
     #[arg(long, env = "READSB_AGGRESSIVE")]
     pub aggressive: bool,
+    #[arg(long, default_value_t = true, env = "READSB_MULTI_PASS")]
+    pub multi_pass: bool,
+    #[arg(long, default_value_t = 0.8, env = "READSB_MULTI_PASS_MARGIN")]
+    pub multi_pass_margin: f32,
     #[arg(long, default_value_t = 4194304, env = "READSB_RINGBUF_SIZE")]
     pub ringbuf_size: usize,
 

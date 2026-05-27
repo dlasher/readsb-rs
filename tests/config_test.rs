@@ -44,3 +44,17 @@ fn test_ringbuf_size_default() {
     let config = ReadsbConfig::parse_from(["readsb"]);
     assert_eq!(config.ringbuf_size, 4194304);
 }
+
+#[test]
+fn test_multi_pass_default() {
+    let config = ReadsbConfig::parse_from(["readsb"]);
+    assert!(config.multi_pass);
+    assert!((config.multi_pass_margin - 0.8).abs() < f32::EPSILON);
+}
+
+#[test]
+fn test_multi_pass_cli_override() {
+    let config = ReadsbConfig::parse_from(["readsb", "--multi-pass", "--multi-pass-margin", "0.9"]);
+    assert!(config.multi_pass);
+    assert!((config.multi_pass_margin - 0.9).abs() < f32::EPSILON);
+}
