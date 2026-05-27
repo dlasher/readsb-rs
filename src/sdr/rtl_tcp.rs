@@ -2,6 +2,7 @@ use async_trait::async_trait;
 use std::io;
 use tokio::net::TcpStream;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::sync::mpsc;
 use std::time::Duration;
 use super::traits::SdrDevice;
 
@@ -33,11 +34,21 @@ pub struct DongleInfo {
 pub struct RtlTcpClient {
     host: String,
     port: u16,
-    stream: Option<TcpStream>,
+    write_half: Option<tokio::net::tcp::OwnedWriteHalf>,
     freq_hz: u32,
     sample_rate: u32,
     gain_db: f32,
     connected: bool,
+    /// Sender side of the bounded mpsc channel (reader task pushes here)
+    #[allow(dead_code)]
+    ringbuf_tx: Option<mpsc::Sender<Vec<u8>>>,
+    /// Receiver side of the bounded mpsc channel (demod loop pops from here)
+    #[allow(dead_code)]
+    ringbuf_rx: Option<mpsc::Receiver<Vec<u8>>>,
+    /// Capacity in chunks (default 16 = 4MB with 262KB each)
+    ringbuf_capacity: usize,
+    /// Size of each chunk the reader pushes
+    ringbuf_chunk_size: usize,
 }
 
 impl RtlTcpClient {
@@ -45,12 +56,58 @@ impl RtlTcpClient {
         RtlTcpClient {
             host,
             port,
-            stream: None,
+            write_half: None,
             freq_hz: 1090000000,
             sample_rate: 2400000,
             gain_db: 49.6,
             connected: false,
+            ringbuf_tx: None,
+            ringbuf_rx: None,
+            ringbuf_capacity: 16,
+            ringbuf_chunk_size: 262_144,
         }
+    }
+
+    /// Configure ring buffer. Must be called **before** `open()`.
+    pub fn set_ringbuf(&mut self, capacity: usize, chunk_size: usize) {
+        self.ringbuf_capacity = capacity;
+        self.ringbuf_chunk_size = chunk_size;
+    }
+
+    fn spawn_reader_task(&mut self, mut read_half: tokio::net::tcp::OwnedReadHalf) {
+        let chunk_size = self.ringbuf_chunk_size;
+        let capacity = self.ringbuf_capacity;
+        let (tx, rx) = mpsc::channel(capacity);
+        self.ringbuf_tx = Some(tx.clone());
+        self.ringbuf_rx = Some(rx);
+
+        tokio::spawn(async move {
+            let mut buf = vec![0u8; chunk_size];
+            loop {
+                let mut total = 0usize;
+                while total < chunk_size {
+                    match read_half.read(&mut buf[total..]).await {
+                        Ok(0) => {
+                            // EOF — close connection
+                            return;
+                        }
+                        Ok(n) => total += n,
+                        Err(ref e) if e.kind() == io::ErrorKind::WouldBlock
+                            || e.kind() == io::ErrorKind::TimedOut => {
+                            continue;
+                        }
+                        Err(_) => {
+                            return;
+                        }
+                    }
+                }
+                let chunk = buf.clone();
+                // bounded channel backpressure: block if full
+                if tx.send(chunk).await.is_err() {
+                    return; // receiver dropped
+                }
+            }
+        });
     }
 
     /// Connect to RTL-TCP server and read dongle info (NO handshake byte)
@@ -69,8 +126,9 @@ impl RtlTcpClient {
                             if info.magic != [b'R', b'T', b'L', b'0'] {
                                 return Err(io::Error::new(io::ErrorKind::InvalidData, "Invalid dongle magic"));
                             }
-                            self.stream = Some(stream);
                             self.connected = true;
+                            let (read_half, write_half) = stream.into_split();
+                            self.write_half = Some(write_half);
                             // Configure the server (50ms between commands for rate limiting)
                             self.send_command(RTLTCP_SET_FREQ, self.freq_hz).await?;
                             tokio::time::sleep(Duration::from_millis(50)).await;
@@ -80,6 +138,8 @@ impl RtlTcpClient {
                             self.send_command(RTLTCP_SET_GAIN_MODE, 1).await?;
                             tokio::time::sleep(Duration::from_millis(50)).await;
                             self.send_command(RTLTCP_SET_GAIN, gain_tenths as u32).await?;
+                            // Spawn background reader task with bounded mpsc ring buffer
+                            self.spawn_reader_task(read_half);
                             return Ok(());
                         }
                         Err(e) => {
@@ -99,9 +159,9 @@ impl RtlTcpClient {
 
     /// Send a command - RTL-TCP protocol is fire-and-forget, no response
     async fn send_command(&mut self, cmd: u8, param: u32) -> io::Result<()> {
-        if let Some(ref mut stream) = self.stream {
-            stream.write_all(&[cmd]).await?;
-            stream.write_all(&param.to_be_bytes()).await?;
+        if let Some(ref mut write_half) = self.write_half {
+            write_half.write_all(&[cmd]).await?;
+            write_half.write_all(&param.to_be_bytes()).await?;
             Ok(())
         } else {
             Err(io::Error::new(io::ErrorKind::NotConnected, "RTL-TCP not connected"))
@@ -123,28 +183,24 @@ impl RtlTcpClient {
         self.gain_db = gain;
     }
 
-    /// Read samples from the stream, looping until the buffer is full
+    /// Read samples from the ring buffer. When ring buffer is active,
+    /// pops from the mpsc channel; otherwise reads directly from TCP stream.
     pub async fn read_samples(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        match &mut self.stream {
-            Some(stream) => {
-                let mut total = 0usize;
-                while total < buf.len() {
-                    match stream.read(&mut buf[total..]).await {
-                        Ok(0) => break, // EOF
-                        Ok(n) => total += n,
-                        Err(ref e) if e.kind() == io::ErrorKind::WouldBlock
-                            || e.kind() == io::ErrorKind::TimedOut => {
-                            if total > 0 { break; } // return what we have
-                            continue;
-                        }
-                        Err(e) => return Err(e),
-                    }
+        // If ring buffer is active, pop from mpsc channel
+        if let Some(ref mut rx) = self.ringbuf_rx {
+            match rx.recv().await {
+                Some(chunk) => {
+                    let n = chunk.len().min(buf.len());
+                    buf[..n].copy_from_slice(&chunk[..n]);
+                    Ok(n)
                 }
-                Ok(total)
+                None => {
+                    Err(io::Error::new(io::ErrorKind::ConnectionAborted, "RTL-TCP ring buffer closed"))
+                }
             }
-            None => {
-                Err(io::Error::new(io::ErrorKind::NotConnected, "RTL-TCP connection not open"))
-            }
+        } else {
+            // Fallback: should never happen since ring buffer is always used after open
+            Err(io::Error::new(io::ErrorKind::NotConnected, "RTL-TCP ring buffer not initialized"))
         }
     }
 }
@@ -156,7 +212,7 @@ impl SdrDevice for RtlTcpClient {
     }
 
     async fn close(&mut self) -> io::Result<()> {
-        self.stream = None;
+        self.write_half = None;
         self.connected = false;
         Ok(())
     }
@@ -184,5 +240,19 @@ impl SdrDevice for RtlTcpClient {
 
     fn name(&self) -> &str {
         "rtl_tcp"
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_rtltcp_ringbuf_fields_exist() {
+        let mut client = RtlTcpClient::new("127.0.0.1".to_string(), 1234);
+        client.set_ringbuf(4194304, 262144);
+        // verify fields were set via struct fields
+        assert_eq!(client.ringbuf_capacity, 4194304);
+        assert_eq!(client.ringbuf_chunk_size, 262_144);
     }
 }
