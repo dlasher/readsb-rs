@@ -136,6 +136,31 @@ async fn main() {
     let bpiq = bytes_per_iq_pair(input_format);
 
     let mut sdr = SdrManager::new();
+
+    // Track if we're using RTL-TCP so we can wire up ring buffer
+    let is_rtltcp = if config.ifile.is_none() {
+        if let Some(ref dev) = config.device {
+            dev.starts_with("rtl_tcp:")
+        } else {
+            false
+        }
+    } else {
+        false
+    };
+
+    // Compute ring buffer capacity in chunks (capacity bytes / 262KB per chunk)
+    let rtltcp_chunk_size = std::env::var("READSB_TCP_CHUNK")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(262_144);
+    let rtltcp_capacity = config.ringbuf_size / rtltcp_chunk_size;
+
+    let read_target = match is_rtltcp {
+        true => rtltcp_chunk_size,
+        false => 2 * 2_400_000,
+    };
+    info!("SDR read target: {} bytes per call", read_target);
+
     let sdr_type = match config.ifile {
         Some(ref path) => SdrType::IFile(path.clone()),
         None => {
@@ -163,19 +188,24 @@ async fn main() {
         }
     };
 
-    let read_target = match &sdr_type {
-        SdrType::RtlTcp(_, _) => std::env::var("READSB_TCP_CHUNK")
-            .ok()
-            .and_then(|v| v.parse().ok())
-            .unwrap_or(262_144),
-        _ => 2 * 2_400_000,
-    };
-    info!("SDR read target: {} bytes per call", read_target);
-
     info!("Opening SDR device...");
-    if let Err(e) = sdr.open(sdr_type).await {
-        warn!("Failed to open SDR device: {}", e);
-        return;
+    if is_rtltcp {
+        // RTL_TCP: use ring buffer to decouple TCP reader from main loop
+        if let SdrType::RtlTcp(host, port) = sdr_type {
+            let device = SdrManager::create_rtl_tcp_device(host, port, rtltcp_capacity, rtltcp_chunk_size);
+            if let Err(e) = sdr.open_with_device(device).await {
+                warn!("Failed to open SDR device: {}", e);
+                return;
+            }
+        } else {
+            warn!("RTL-TCP device type mismatch");
+            return;
+        }
+    } else {
+        if let Err(e) = sdr.open(sdr_type).await {
+            warn!("Failed to open SDR device: {}", e);
+            return;
+        }
     }
     info!("SDR device opened successfully");
 

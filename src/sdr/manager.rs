@@ -21,7 +21,7 @@ impl SdrManager {
         SdrManager { device: None }
     }
 
-pub fn create_device(sdr_type: SdrType) -> Box<dyn SdrDevice> {
+    pub fn create_device(sdr_type: SdrType) -> Box<dyn SdrDevice> {
         match sdr_type {
             SdrType::IFile(path) => Box::new(IFileDevice::new(path)),
             SdrType::RtlSdr(idx) => Box::new(RtlSdrDevice::new(idx)),
@@ -30,9 +30,31 @@ pub fn create_device(sdr_type: SdrType) -> Box<dyn SdrDevice> {
         }
     }
 
+    /// Create an RtlTcpClient with the ring buffer pre-configured.
+    pub fn create_rtl_tcp_device(
+        host: String,
+        port: u16,
+        ringbuf_capacity: usize,
+        ringbuf_chunk_size: usize,
+    ) -> Box<dyn SdrDevice> {
+        let mut client = RtlTcpClient::new(host, port);
+        client.set_ringbuf(ringbuf_capacity, ringbuf_chunk_size);
+        Box::new(client)
+    }
+
+    async fn open_device(&mut self, device: Box<dyn SdrDevice>) -> io::Result<()> {
+        self.device = Some(device);
+        self.device.as_mut().unwrap().open().await
+    }
+
     pub async fn open(&mut self, sdr_type: SdrType) -> io::Result<()> {
         self.device = Some(Self::create_device(sdr_type));
         self.device.as_mut().unwrap().open().await
+    }
+
+    /// Open a pre-created device (e.g., RtlTcpClient with ring buffer).
+    pub async fn open_with_device(&mut self, device: Box<dyn SdrDevice>) -> io::Result<()> {
+        self.open_device(device).await
     }
 
     pub async fn read_samples(&mut self, buf: &mut [u8]) -> io::Result<usize> {
