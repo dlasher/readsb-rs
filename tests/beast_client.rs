@@ -402,3 +402,96 @@ fn test_compare_file_live() {
 
     let _ = fs::remove_file(file_path);
 }
+
+#[test]
+fn test_viewsb_noninteractive() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+
+    // DF17 frame: ICAO 4840D6
+    let mut buf = Vec::new();
+    buf.push(0x1a); buf.push(0x33);
+    buf.extend_from_slice(&[0u8; 6]);
+    buf.push(0x42);
+    buf.extend_from_slice(&[0x8D, 0x48, 0x40, 0xD6, 0x20, 0x2C, 0xC3,
+                              0x71, 0xC3, 0x2C, 0xE0, 0x57, 0x60, 0x98]);
+
+    thread::spawn(move || {
+        if let Ok((mut stream, _)) = listener.accept() {
+            let _ = stream.write_all(&buf);
+        }
+    });
+    wait_for_binary();
+
+    let output = beast_client()
+        .args(["viewsb", "--no-interactive", "--count", "1",
+               "--port", &port.to_string(), "--show-all"])
+        .output().expect("Failed to run");
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("4840D6"), "Should contain ICAO 4840D6: got '{}'", stdout);
+}
+
+#[test]
+fn test_viewsb_json_output() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let json_path = "/tmp/test_viewsb_output.json";
+    let _ = std::fs::remove_file(json_path);
+
+    let mut buf = Vec::new();
+    buf.push(0x1a); buf.push(0x33);
+    buf.extend_from_slice(&[0u8; 6]);
+    buf.push(0x42);
+    buf.extend_from_slice(&[0x8D, 0x48, 0x40, 0xD6, 0x20, 0x2C, 0xC3,
+                              0x71, 0xC3, 0x2C, 0xE0, 0x57, 0x60, 0x98]);
+
+    thread::spawn(move || {
+        if let Ok((mut stream, _)) = listener.accept() {
+            let _ = stream.write_all(&buf);
+        }
+    });
+    wait_for_binary();
+
+    let output = beast_client()
+        .args(["viewsb", "--no-interactive", "--count", "1",
+               "--port", &port.to_string(),
+               "--json", json_path])
+        .output().expect("Failed to run");
+    assert!(output.status.success());
+
+    let json_content = std::fs::read_to_string(json_path)
+        .expect("JSON file should exist");
+    assert!(json_content.contains("4840D6"), "JSON should contain ICAO");
+    let _ = std::fs::remove_file(json_path);
+}
+
+#[test]
+fn test_viewsb_metric_conversion() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+
+    let mut buf = Vec::new();
+    buf.push(0x1a); buf.push(0x33);
+    buf.extend_from_slice(&[0u8; 6]);
+    buf.push(0x42);
+    buf.extend_from_slice(&[0x8D, 0x48, 0x40, 0xD6, 0x20, 0x2C, 0xC3,
+                              0x71, 0xC3, 0x2C, 0xE0, 0x57, 0x60, 0x98]);
+
+    thread::spawn(move || {
+        if let Ok((mut stream, _)) = listener.accept() {
+            let _ = stream.write_all(&buf);
+        }
+    });
+    wait_for_binary();
+
+    let output = beast_client()
+        .args(["viewsb", "--no-interactive", "--count", "1",
+               "--port", &port.to_string(), "--metric", "--show-all"])
+        .output().expect("Failed to run");
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    // With --metric, header should show "m" for altitude and "km/h" for speed
+    assert!(stdout.contains(" m "), "Metric output header should contain 'm' unit: got '{}'", stdout);
+    assert!(stdout.contains("km/h"), "Metric output header should contain 'km/h' unit: got '{}'", stdout);
+}
