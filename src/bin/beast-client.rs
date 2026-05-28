@@ -8,7 +8,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 #[derive(Parser)]
-#[command(name = "beast-client", version = "0.7.0")]
+#[command(name = "beast-client", version = "0.9.6")]
 struct Cli {
     #[command(subcommand)]
     command: Commands,

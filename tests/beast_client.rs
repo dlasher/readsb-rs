@@ -44,7 +44,7 @@ fn test_beast_client_cli_version() {
         .expect("Failed to run beast-client --version");
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("0.7.0"), "Version should match crate version");
+    assert!(stdout.contains("0.9.6"), "Version should match crate version");
 }
 
 #[test]
