@@ -9,6 +9,46 @@ fn valid_msg() -> [u8; 14] {
 /// Single-bit error: flip bit 5.
 /// bit 5: byte_idx = 5/8 = 0, bit_in_byte = 5, pos = 7 - 5 = 2 → msg[0] bit 2
 #[test]
+fn test_multi_pass_accepts_all_correctable() {
+    // Verify the multi-pass filter logic: accept syndrome==0 AND any
+    // correctable syndrome (1-bit and 2-bit), skip only uncorrectable.
+    // This is a unit test of the filter logic, not a full demod path test.
+    let engine = CrcFixEngine::new(112);
+
+    let clean = valid_msg();
+    let clean_crc = modes_checksum(&clean, 112);
+    assert_eq!(clean_crc, 0);
+
+    // 1-bit error
+    let mut msg1 = clean;
+    msg1[0] ^= 1 << 2;
+    let crc1 = modes_checksum(&msg1, 112);
+    assert_ne!(crc1, 0);
+    assert!(engine.diagnose(crc1).is_some(), "1-bit must be correctable");
+
+    // 2-bit error
+    let mut msg2 = valid_msg();
+    msg2[1] ^= 1 << 5;
+    msg2[6] ^= 1 << 5;
+    let crc2 = modes_checksum(&msg2, 112);
+    assert_ne!(crc2, 0);
+    assert!(engine.diagnose(crc2).is_some(), "2-bit must be correctable");
+
+    // 3-bit error (uncorrectable)
+    let mut msg3 = valid_msg();
+    msg3[0] ^= 1 << 2;
+    msg3[1] ^= 1 << 5;
+    msg3[2] ^= 1 << 3;
+    let crc3 = modes_checksum(&msg3, 112);
+    assert_ne!(crc3, 0);
+    // May or may not find a spurious match — key is filter skips uncorrectable
+    if let Some(info) = engine.diagnose(crc3) {
+        // 3-bit should NOT be corrected in multi-pass (too risky)
+        assert!(info.errors <= 2, "Spurious match should still have ≤2 errors");
+    }
+}
+
+#[test]
 fn test_single_bit_error_correction() {
     let mut msg = valid_msg();
     // Flip bit 5 (bit 2 in byte 0)

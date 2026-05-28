@@ -394,17 +394,27 @@ pub fn demodulate2400_multi_pass(mag: &mut [u16], count: usize, config: &DemodCo
                 0
             };
 
-            // Check CRC
             let msgbits = bytes.len() * 8;
             let syndrome = crate::crc::modes_checksum(&bytes, msgbits);
-            if syndrome != 0 {
-                // CRC failed — skip (don't subtract)
+            let engine = if msgbits == 112 { &*CRC_ENGINE_112 } else { &*CRC_ENGINE_56 };
+
+            let mut is_corrected = false;
+            let mut final_bytes = bytes;
+
+            if syndrome == 0 {
+                // CRC OK — nothing to fix
+            } else if let Some(info) = engine.diagnose(syndrome) {
+                // Any correctable syndrome — scoring already validated it
+                crate::crc::CrcFixEngine::fix(&mut final_bytes, info);
+                is_corrected = true;
+            } else {
+                // Uncorrectable — skip
                 continue;
             }
 
-            // CRC OK — add to results and subtract from mag buffer
+            // At this point: syndrome==0 OR correctable — keep and subtract
             let decoded = crate::demod::signal_subtraction::DecodedMessage {
-                bytes: bytes.clone(),
+                bytes: final_bytes.clone(),
                 preamble_pos,
                 signal,
                 icao,
@@ -412,10 +422,10 @@ pub fn demodulate2400_multi_pass(mag: &mut [u16], count: usize, config: &DemodCo
             decoded.subtract_from(mag);
 
             all_messages.push(Message {
-                bytes,
+                bytes: final_bytes,
                 signal,
                 preamble_pos,
-                corrected: false,
+                corrected: is_corrected,
             });
             stats.preamble_candidates += 1;
         }
