@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.9.6] - 2026-05-27
+
+### Fixed
+- **Multi-pass demodulation silently dropped all correctable CRC messages**: `syndrome != 0 { continue }` discarded every 1-bit and 2-bit correctable frame that `score_modes_message()` had already scored (700–900 for known-ICAO). Now calls `CrcFixEngine::diagnose(syndrome)` and `CrcFixEngine::fix()` for all repairable syndromes, re-computing CRC after correction. `src/demod/demod_2400.rs`
+- **Signal subtraction used fixed constants regardless of signal strength**: `PREAMBLE_HIGH=300` / `QI_HIGH=250` over-subtracted weak signals (<100) to zero and under-subtracted strong signals. Now scales by `signal / 200.0` (0.25×–2.0× range), preserving downstream detectability. `src/demod/signal_subtraction.rs`
+- **Histogram ignored samples >255**: silently skipped all values in `compute_histogram()`, biasing the noise floor downward. Now caps at 255 and counts them as full-strength. `src/demod/noise_floor.rs`
+- **Message advancement was 28 samples instead of 269**: `msg.len() * 2` re-scanned 89% of the same message samples, causing duplicate detections and wasting subtraction bandwidth. Now uses `MODES_LONG_MSG_SAMPLES` (269). `src/demod/demod_2400.rs`
+
+### Added
+- **`Message.corrected` flag for CRC-repaired frames**: `DemodResult` messages now carry `corrected: bool` so the downstream pipeline can distinguish natively-clean from repaired frames. `src/demod/demod_2400.rs`
+- **`DiagSnapshot.bitfix` counter**: diagnostic output (`READSB_DIAGNOSTIC=1`) reports corrected-message count alongside `crc_ok`/`crc_fail`, making bitfix rate visible per reporting interval. `src/main.rs`
+- **Per-pass diagnostics in multi-pass demod**: `READSB_DIAGNOSTIC=1` emits `DIAG PASS N: threshold=T detected=D kept=K corrected=C` for each pass, enabling direct tuning of `--multi-pass-margin`. `src/demod/demod_2400.rs`
+
+### Changed
+- **Main loop now accepts CRC-corrected messages for tracking and console output**: `if result.crc_ok || result.corrected` feeds both clean and repaired frames into tracker, ICAO filter, console outputter, and stats accumulator (`crc_corrected` counter). Beast/Hex output already included all frames regardless of CRC status. `src/main.rs`
+
+
 ## [0.9.5] - 2026-05-27
 
 ### Added
