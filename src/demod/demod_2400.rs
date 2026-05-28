@@ -337,7 +337,7 @@ pub fn demodulate2400(mag: &[u16], mag_len: usize, preamble_threshold: u32, stat
 
         if let Some(msg) = best_msg {
             let signal = (mag[pa] as f64 + mag[pa + 2] as f64 + mag[pa + 7] as f64 + mag[pa + 9] as f64) / 4.0;
-            let advance = msg.len() * 2;
+            let advance = MODES_LONG_MSG_SAMPLES;
             messages.push((msg, signal, pa));
             pa += advance;
         } else {
