@@ -59,7 +59,7 @@ pub fn format_header(metric: bool, show_dist: bool) -> String {
     )
 }
 
-pub fn format_separator(metric: bool, show_dist: bool) -> String {
+pub fn format_separator(_metric: bool, show_dist: bool) -> String {
     let base = "───────────────────────────────────────────────";
     if show_dist {
         format!("{}─────────", base)
@@ -108,7 +108,7 @@ pub fn compute_distance_km(a: &Aircraft, user_lat: f64, user_lon: f64) -> f64 {
     meters / 1000.0
 }
 
-pub fn sort_aircraft(aircraft: &mut Vec<Aircraft>, sort: SortColumn, user_lat: f64, user_lon: f64) {
+pub fn sort_aircraft(aircraft: &mut [Aircraft], sort: SortColumn, user_lat: f64, user_lon: f64) {
     aircraft.sort_by(|a, b| {
         let cmp = match sort {
             SortColumn::Dist => {
@@ -144,8 +144,7 @@ pub fn sort_aircraft(aircraft: &mut Vec<Aircraft>, sort: SortColumn, user_lat: f
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{AddrType, AirGround, Emergency, NavModes};
-    use crate::types::altitude::INVALID_ALTITUDE;
+    use crate::types::{AddrType};
 
     fn make_test_aircraft() -> Aircraft {
         let mut a = Aircraft::new(0x4840D6, AddrType::AdsbIcao, 1000);
