@@ -78,6 +78,7 @@ struct DiagSnapshot {
     msg_count: u32,
     crc_ok: u32,
     crc_fail: u32,
+    bitfix: u32,
     iter_count: u64,
 }
 
@@ -449,13 +450,16 @@ async fn main() {
                         &msg.bytes, msgbits, engine, msg.signal,
                     ) {
                         if diag_enabled {
-                            if result.crc_ok {
+                            if result.corrected {
+                                diag.crc_ok += 1;
+                                diag.bitfix += 1;
+                            } else if result.crc_ok {
                                 diag.crc_ok += 1;
                             } else {
                                 diag.crc_fail += 1;
                             }
                         }
-                        if result.crc_ok {
+                        if result.crc_ok || result.corrected {
                             tracker.update_from_message(&result.message, now);
                             if result.message.addr != 0 {
                                 readsb::demod::icao_filter::icao_filter_add(result.message.addr);
@@ -515,13 +519,14 @@ async fn main() {
                     let elapsed = diag_last_log.elapsed().as_secs_f64().max(0.001);
                     let reads_per_sec = diag.iter_count as f64 / elapsed;
                     eprintln!(
-                        "DIAG: {}B {}samp {}pre {}msgs {}ok {}fail {:.1}rps",
+                        "DIAG: {}B {}samp {}pre {}msgs {}ok {}fail {}fix {:.1}rps",
                         diag.bytes_read,
                         diag.samples_processed,
                         diag.preamble_candidates,
                         diag.msg_count,
                         diag.crc_ok,
                         diag.crc_fail,
+                        diag.bitfix,
                         reads_per_sec,
                     );
                     diag_last_log = Instant::now();
