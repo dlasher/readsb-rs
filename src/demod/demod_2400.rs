@@ -7,6 +7,7 @@ pub struct Message {
     pub bytes: Vec<u8>,
     pub signal: f64,
     pub preamble_pos: usize,
+    pub corrected: bool,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -354,7 +355,7 @@ pub fn demodulate2400_v2(mag: &[u16], count: usize, config: &DemodConfig) -> Dem
     };
     let messages = demodulate2400(mag, count, config.preamble_threshold, &mut stats)
         .into_iter()
-        .map(|(bytes, signal, preamble_pos)| Message { bytes, signal, preamble_pos })
+        .map(|(bytes, signal, preamble_pos)| Message { bytes, signal, preamble_pos, corrected: false })
         .collect();
     DemodResult {
         messages,
@@ -414,6 +415,7 @@ pub fn demodulate2400_multi_pass(mag: &mut [u16], count: usize, config: &DemodCo
                 bytes,
                 signal,
                 preamble_pos,
+                corrected: false,
             });
             stats.preamble_candidates += 1;
         }
