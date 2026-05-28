@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.10.0] - 2026-05-28
+
+### Added
+- **`beast-client viewsb` subcommand**: Interactive terminal aircraft table (like `viewadsb` from readsb-C). Connects to any Beast source and displays a live-updating table of tracked aircraft using crossterm for TTY management. Supports interactive (alternate screen, keyboard quit) and non-interactive (pipe/file) modes. `src/viewsb/` module (6 files, 24 tests).
+- **`beast-client viewsb --json` / `--csv` output**: Line-oriented JSON and CSV snapshot writers with atomic file writes. `src/viewsb/snapshot.rs`
+- **`beast-client viewsb --sort`**: Sort by any column (icao, flight, alt, speed, heading, distance, seen) with ICAO tie-breaker for visual stability. Distance sort auto-enabled when `--lat`/`--lon` provided. `src/viewsb/sort.rs`
+- **`beast-client viewsb --metric`**: Metric unit conversion (m, km/h, km) for altitude, speed, and distance columns. `src/viewsb/formatter.rs`
+- **`beast-client viewsb --lat`/`--lon`/`--show-all`/`--count`/`--interval`**: All standard CLI options matching viewadsb behavior.
+- **README.readsb.md**: Dedicated documentation for the core decoder binary.
+- **README.beast-client.md**: Dedicated documentation for the beast-client CLI tool.
+
+### Fixed
+- **Mode-S ME field extraction off-by-one**: `decode_df17_18` extracted the ME field from `msg[5..12]` instead of `msg[4..11]`, shifting all ME byte indices by one. This caused altitude, velocity, target state, and aircraft status fields to decode from wrong byte positions. CPR lat/lon happened to produce plausible-looking values despite the shift. Fix: changed all three ME/MB/MV copies to `msg[4..11]` in `decode_df17_18`, `decode_df20`, and `decode_df31`. `src/modes/parser.rs`
+
 ## [0.9.6] - 2026-05-27
 
 ### Fixed

@@ -66,7 +66,7 @@ fn decode_df5_21(mm: &mut ModesMessage) {
 fn decode_df11(_mm: &mut ModesMessage) {}
 
 fn decode_df17_18(mm: &mut ModesMessage) {
-    mm.me.copy_from_slice(&mm.msg[5..12]);
+    mm.me.copy_from_slice(&mm.msg[4..11]);
     mm.metype = ((mm.me[0] & 0xF8) >> 3) as u32;
     mm.mesub = (mm.me[0] & 0x07) as u32;
     match mm.metype {
@@ -83,11 +83,11 @@ fn decode_df19(_mm: &mut ModesMessage) {}
 fn decode_df20(mm: &mut ModesMessage) {
     let ac = ((mm.msg[2] as u32 & 0x1F) << 8) | (mm.msg[3] as u32);
     if ac != 0 { mm.baro_alt = decode_altitude(ac); mm.baro_alt_valid = mm.baro_alt != INVALID_ALTITUDE; mm.baro_alt_unit = AltitudeUnit::Feet; }
-    mm.mb.copy_from_slice(&mm.msg[5..12]);
+    mm.mb.copy_from_slice(&mm.msg[4..11]);
     mm.commb_format = crate::modes::comm_b::decode_comm_b(&mm.mb);
 }
 fn decode_df24(_mm: &mut ModesMessage) {}
-fn decode_df31(mm: &mut ModesMessage) { mm.mv.copy_from_slice(&mm.msg[5..12]); }
+fn decode_df31(mm: &mut ModesMessage) { mm.mv.copy_from_slice(&mm.msg[4..11]); }
 
 pub fn decode_altitude(ac: u32) -> i32 {
     if ac & 0x0040 != 0 {

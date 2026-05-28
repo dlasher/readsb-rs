@@ -36,6 +36,21 @@ fn test_parse_invalid_length() {
 }
 
 #[test]
+fn test_me_field_extraction() {
+    // ME field should be msg[4..11] (7 bytes)
+    let bytes = hex_to_bytes("8D4840D6202CC371C32CE0576098").unwrap();
+    let engine = CrcFixEngine::new(112);
+    let result = parse_modes_message(&bytes, 112, &engine, 0.0).unwrap();
+    assert_eq!(result.message.me[0], 0x20);
+    assert_eq!(result.message.me[1], 0x2C);
+    assert_eq!(result.message.me[2], 0xC3);
+    assert_eq!(result.message.me[3], 0x71);
+    assert_eq!(result.message.me[4], 0xC3);
+    assert_eq!(result.message.me[5], 0x2C);
+    assert_eq!(result.message.me[6], 0xE0);
+}
+
+#[test]
 fn test_cpr_decoded_set_on_airborne_position() {
     let bytes = hex_to_bytes("8D4840D6202CC371C32CE0576098").unwrap();
     let engine = CrcFixEngine::new(112);
