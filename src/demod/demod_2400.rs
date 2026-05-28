@@ -385,9 +385,15 @@ pub fn demodulate2400_multi_pass(mag: &mut [u16], count: usize, config: &DemodCo
             adaptive_threshold(pass as u32, base_threshold, margin, noise_floor.floor)
         };
 
-        let result = demodulate2400(mag, count, threshold, &mut MagBufStats::default());
+        let mut result = demodulate2400(mag, count, threshold, &mut MagBufStats::default());
+        let detected = result.len();
 
-        for (bytes, signal, preamble_pos) in result {
+        let diag_enabled = std::env::var("READSB_DIAGNOSTIC")
+            .is_ok_and(|v| v == "1");
+        let mut kept = 0usize;
+        let mut corrected_count = 0usize;
+
+        for (bytes, signal, preamble_pos) in result.drain(..) {
             let icao = if bytes.len() >= 4 {
                 ((bytes[1] as u32) << 16) | ((bytes[2] as u32) << 8) | (bytes[3] as u32)
             } else {
@@ -428,6 +434,17 @@ pub fn demodulate2400_multi_pass(mag: &mut [u16], count: usize, config: &DemodCo
                 corrected: is_corrected,
             });
             stats.preamble_candidates += 1;
+            kept += 1;
+            if is_corrected {
+                corrected_count += 1;
+            }
+        }
+
+        if diag_enabled {
+            eprintln!(
+                "DIAG PASS {}: threshold={} detected={} kept={} corrected={}",
+                pass, threshold, detected, kept, corrected_count
+            );
         }
     }
 
