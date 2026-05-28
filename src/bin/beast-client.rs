@@ -68,12 +68,10 @@ enum Commands {
         #[arg(long, default_value_t = 30005)]
         port: u16,
     },
-    /// Live Mode-S decoding with continuous output
-    Live {
-        #[arg(long, default_value = "127.0.0.1")]
-        host: String,
-        #[arg(long, default_value_t = 30005)]
-        port: u16,
+    /// Connect to a Beast source and view live aircraft table
+    Viewsb {
+        #[command(flatten)]
+        args: readsb::viewsb::cli::ViewsbArgs,
     },
 }
 
@@ -490,16 +488,8 @@ fn main() {
             let frames = collect_frames(&mut stream, 30000);
             decode_frames(&frames);
         }
-        Commands::Live { host, port } => {
-            let mut stream = connect(&host, port, 1000);
-            loop {
-                let frames = read_batch(&mut stream);
-                if frames.is_empty() {
-                    std::thread::sleep(std::time::Duration::from_millis(200));
-                    continue;
-                }
-                decode_frames(&frames);
-            }
+        Commands::Viewsb { args } => {
+            readsb::viewsb::run(args);
         }
         Commands::Record { host, port, output } => {
             let mut stream = connect(&host, port, 1000);

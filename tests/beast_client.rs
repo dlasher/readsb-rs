@@ -15,6 +15,28 @@ fn wait_for_binary() {
 }
 
 #[test]
+fn test_viewsb_cli_help() {
+    let output = beast_client()
+        .args(["viewsb", "--help"])
+        .output()
+        .expect("Failed to run beast-client viewsb --help");
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("--host"), "Help should list --host");
+    assert!(stdout.contains("--port"), "Help should list --port");
+    assert!(stdout.contains("--no-interactive"), "Help should list --no-interactive");
+    assert!(stdout.contains("--count"), "Help should list --count");
+    assert!(stdout.contains("--metric"), "Help should list --metric");
+    assert!(stdout.contains("--sort"), "Help should list --sort");
+    assert!(stdout.contains("--lat"), "Help should list --lat");
+    assert!(stdout.contains("--lon"), "Help should list --lon");
+    assert!(stdout.contains("--json"), "Help should list --json");
+    assert!(stdout.contains("--csv"), "Help should list --csv");
+    assert!(stdout.contains("--show-all"), "Help should list --show-all");
+    assert!(stdout.contains("--modeac"), "Help should list --modeac");
+}
+
+#[test]
 fn test_beast_client_cli_version() {
     let output = beast_client()
         .arg("--version")

@@ -10,3 +10,4 @@ pub mod net;
 pub mod output;
 pub mod stats;
 pub mod console;
+pub mod viewsb;
