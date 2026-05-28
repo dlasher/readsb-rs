@@ -27,14 +27,10 @@ fn compute_histogram(mag: &[u16]) -> ([u32; HISTOGRAM_BUCKETS], u16) {
     let mut max_val: u16 = 0;
 
     for &v in mag {
-        if v < HISTOGRAM_BUCKETS as u16 {
-            histogram[v as usize] += 1;
-            if v > max_val {
-                max_val = v;
-            }
-        } else {
-            // Values > 255 get bucketed into overflow bin (if we had one)
-            // For now, skip them — they're likely signal
+        let v_clipped = v.min((HISTOGRAM_BUCKETS - 1) as u16);
+        histogram[v_clipped as usize] += 1;
+        if v_clipped > max_val {
+            max_val = v_clipped;
         }
     }
 
@@ -150,5 +146,17 @@ mod tests {
         let floor = estimate_noise_floor(&mag);
         assert_eq!(floor.floor, 20);
         assert_eq!(floor.median, 15);
+    }
+
+    #[test]
+    fn test_estimate_noise_floor_high_values() {
+        // Values above 255 should be capped to 255, not skipped
+        let mut mag = vec![5u16; 100];
+        mag.extend(vec![300u16; 50]);
+        let floor = estimate_noise_floor(&mag);
+        
+        // With skip: total=100, median=5, p75=5
+        // With cap: total=150, 75th percentile ≈ 255 (first 100 are 5, next 50 are 255)
+        assert!(floor.p75 >= 100, "High signal values should not be silently skipped");
     }
 }
