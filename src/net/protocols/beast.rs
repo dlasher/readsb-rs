@@ -90,19 +90,22 @@ pub fn decode_record(data: &[u8]) -> Option<BeastFrame> {
 pub fn parse_beast_frame(data: &[u8]) -> Option<BeastFrame> {
     if data.len() < 9 { return None; }
     if data[0] != 0x1a { return None; }
-    if data[1] != 0x32 && data[1] != 0x33 { return None; }
+    if data[1] != 0x31 && data[1] != 0x32 && data[1] != 0x33 { return None; }
 
     let ts_bytes = &data[2..8];
     let timestamp = i64::from_be_bytes([0, 0, ts_bytes[0], ts_bytes[1], ts_bytes[2], ts_bytes[3], ts_bytes[4], ts_bytes[5]]);
     let rssi = data[8];
-    // Estimate stuffed payload length: 2x expected payload for worst-case stuffing
-    let max_stuffed = if data[1] == 0x32 { 14_usize } else { 28_usize };
+    // Payload size: Mode A/C (0x31) = 2B, Mode S short (0x32) = 7B, Mode S long (0x33) = 14B
+    let (max_stuffed, max_len) = match data[1] {
+        0x31 => (4_usize, 2_usize),
+        0x32 => (14_usize, 7_usize),
+        _ => (28_usize, 14_usize),
+    };
     let raw_end = (9 + max_stuffed).min(data.len());
     if raw_end <= 9 { return None; }
     let raw_payload = &data[9..raw_end];
 
     let mut payload = destuff_beast(raw_payload);
-    let max_len = if data[1] == 0x32 { 7_usize } else { 14_usize };
     payload.truncate(max_len);
     Some(BeastFrame { timestamp, frame_type: data[1], payload, rssi })
 }

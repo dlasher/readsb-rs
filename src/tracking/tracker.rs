@@ -171,7 +171,7 @@ impl Tracker {
             self.update_accuracy(&mut a, msg);
             self.update_position(&mut a, msg, now);
             if msg.track_valid {
-                a.track = msg.gs;
+                a.track = msg.track;
             }
             if msg.baro_rate_valid {
                 a.baro_rate = msg.baro_rate;

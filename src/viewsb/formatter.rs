@@ -9,6 +9,12 @@ pub fn format_row(a: &Aircraft, metric: bool, show_dist: bool, dist_nm: f64, see
         } else {
             a.baro_alt
         }
+    } else if a.geom_alt != INVALID_ALTITUDE {
+        if metric {
+            (a.geom_alt as f64 * 0.3048).round() as i32
+        } else {
+            a.geom_alt
+        }
     } else {
         0
     };
@@ -31,38 +37,50 @@ pub fn format_row(a: &Aircraft, metric: bool, show_dist: bool, dist_nm: f64, see
     } else {
         String::new()
     };
+    let rssi = format!("{:5.1}", a.get_signal_db());
+    let trk = format!("{:3.0}", a.track);
+    let lat = format!("{:7.2}", a.lat);
+    let lon = format!("{:8.2}", a.lon);
+    let seen = format!("{:4}", seen_secs);
+    let msgs = format!("{:4}", a.messages);
+    let alt_str = format!("{:5}", alt);
+    let spd_str = format!("{:4}", spd);
 
     format!(
-        "{:6} {:8} {:4} {:5} {:3} {:7} {:8} {:3} {:4} {:4} {:4}{}",
-        format!("{:06X}", a.addr),
+        "{:06X}  {:<8} {:04x}  {:>5} {:>4}  {:>7} {:>8}  {:>3} {:>4} {:>4}  {:>5}{}",
+        a.addr,
         a.callsign.as_str(),
-        format!("{:04o}", a.squawk),
-        alt,
-        spd,
-        format!("{:.2}", a.lat),
-        format!("{:.2}", a.lon),
-        format!("{:.0}", a.track),
-        a.messages,
-        seen_secs,
-        format!("{:.1}", a.get_signal_db()),
+        a.squawk,
+        alt_str,
+        spd_str,
+        lat,
+        lon,
+        trk,
+        msgs,
+        seen,
+        rssi,
         dist_str
     )
 }
 
 pub fn format_header(metric: bool, show_dist: bool) -> String {
-    let alt_unit = if metric { "m" } else { "ft" };
-    let spd_unit = if metric { "km/h" } else { "kt" };
-    let dist_col = if show_dist { " Dist" } else { "" };
+    let alt_unit = if metric { "m " } else { "ft " };
+    let spd_unit = if metric { "km/h" } else { " kt" };
+    let dist_col = if show_dist { "  Dist" } else { "" };
     format!(
-        "{:6} {:8} {:4} {:>5} {:3} {:7} {:8} {:3} {:4} {:4} {:4}{}",
+        "{:6}  {:<8} {:4}  {:>5} {:>4}  {:>7} {:>8}  {:>3} {:>4} {:>4}  {:>5}{}",
         "ICAO", "Callsign", "Sqwk", alt_unit, spd_unit, "Lat", "Lon", "Hdg", "Msgs", "Seen", "RSSI", dist_col
     )
 }
 
-pub fn format_separator(_metric: bool, show_dist: bool) -> String {
-    let base = "───────────────────────────────────────────────";
+pub fn format_separator(show_dist: bool) -> String {
+    // Separator matches data format: dashes for each column width, spaces matching format gaps
+    // {:06X}  {:<8} {:04o}  {:>5} {:>4}  {:>7} {:>8}  {:>3} {:>4} {:>4}  {:>5}
+    //    6   2    8   1    4   2    5   1    4   2    7   1    8   2    3   1    4   1    4   2    5
+    let base = "──────  ──────── ────  ───── ────  ─────── ────────  ─── ──── ────  ─────";
     if show_dist {
-        format!("{}─────────", base)
+        // Dist column: "  Dist" = 6 chars (2 spaces + 4 chars)
+        format!("{}  ────", base)
     } else {
         base.to_string()
     }
@@ -78,7 +96,7 @@ pub fn format_aircraft_table(
 ) -> Vec<String> {
     let mut rows = vec![
         format_header(metric, show_dist),
-        format_separator(metric, show_dist),
+        format_separator(show_dist),
     ];
     for a in aircraft {
         let seen_secs = (now - a.seen) / 1000;

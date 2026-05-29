@@ -1,5 +1,31 @@
 # Changelog
 
+## [0.11.0] - 2026-05-29
+
+### Fixed
+- **Callsign never decoded**: `commb_callsign()` existed but was never called from DF20 Comm-B. ADS-B TC 1-4 (Aircraft Identification) was dispatched to `decode_surface_position` instead of `decode_aircraft_identification`. Callsigns now extracted from both DF20 Comm-B AircraftIdent (BDS 2,0) and ADS-B TC 1-4 messages. `src/modes/parser.rs`
+- **Heading/track never computed**: `track_valid` was declared but never set. `decode_airborne_velocity` computed ground speed but not heading. Now computes `atan2(ew, ns)` from signed EW/NS velocity components with proper sign handling. `src/modes/parser.rs`
+- **Altitude always 0 in viewsb**: `decode_airborne_position` sets either `baro_alt` or `geom_alt` depending on the Q-bit. viewsb formatter only checked `baro_alt`. Now falls back to `geom_alt` when `baro_alt` is invalid. `src/viewsb/formatter.rs`
+- **Tracker set heading to ground speed**: `a.track = msg.gs` assigned ground speed to the heading field. Now uses `msg.track`. `src/tracking/tracker.rs`
+- **Console track used `cf*90` hack**: Console state and formatter computed track as `(msg.cf as f32) * 90.0` instead of using decoded heading. Now uses `msg.track`. `src/console/state.rs`, `src/console/formatter.rs`
+- **Squawk never extracted from TC=28 Aircraft Status**: `decode_aircraft_status` only handled emergency type, missing the 13-bit Gillham squawk field. Now extracts squawk from TC=28 mesub=1 (bits 12-24) and TC=28 mesub=7 (bits 9-21) via `decode_id13()`. `src/modes/parser.rs`
+- **Squawk never extracted from Mode A/C frames**: BEAST parser rejected 0x31 (Mode A/C) frames. `parse_modes_message` rejected 16-bit payloads. Now accepts Mode A/C frames and decodes squawk via `decode_mode_ac()` (Mode A code masked with `0x7777`). `src/net/protocols/beast.rs`, `src/modes/parser.rs`
+- **DF5/21 Address/Parity frames corrupted by CRC fixer**: For DF0/4/5 (Address/Parity frames), the CRC syndrome IS the sender's ICAO address. The CRC fixer misinterpreted non-zero CRC as bit errors. Now handles Address/Parity frames by setting `mm.addr = crc` and skipping the fixer. `src/modes/parser.rs`
+- **Airborne velocity bit positions completely wrong**: EW/NS velocity extraction used LSB-first bit numbering instead of MSB-first (C `getbits` convention). EW at bits 15-24, NS at bits 26-35, VR at bits 37-46. Sign convention also reversed (bit=1 → negative, matching C). Speeds now show correct subsonic values (~300-450 kt for cruise). `src/modes/parser.rs`
+- **Airborne position altitude encoding wrong**: `decode_airborne_position` extracted altitude from `me[5]/me[6]` (surface position format) instead of `me[1]/me[2]` (12-bit field at ME bits 9-20). Now uses proper Q-bit (bit 4) and `n*25-1000` formula matching readsb-C `decodeAC12Field`. `src/modes/parser.rs`
+- **CPR lat/lon extraction in airborne position**: Used wrong byte positions. Now extracts CPR lat from `me[2-4]` and CPR lon from `me[4-6]` per ADS-B standard. `src/modes/parser.rs`
+- **viewsb formatter column alignment**: Seen column `{:>3}` truncated at 999 messages, RSSI `{:>5.1}` overflowed for strong signals. Now `{:>4}` for Seen, `{:>5.1}` for RSSI with proper spacing. `src/viewsb/formatter.rs`
+- **viewsb screen staircase display**: `writeln!` with `\n` alone doesn't return to column 0 in crossterm raw mode. Now uses `write!` with `\r\n`. `src/viewsb/screen.rs`
+
+### Added
+- **`track: f32` field to `ModesMessage`**: Stores decoded heading from airborne velocity messages. `src/types/message.rs`
+- **`decode_mode_ac()`**: Decodes Mode A/C frames (2-byte raw Mode A code) into squawk via `0x7777` mask with fudged non-ICAO address. `src/modes/parser.rs`
+- **`decode_id13()`**: 13-bit Gillham code converter matching C reference, used for squawk extraction from TC=28/31 messages. `src/modes/parser.rs`
+- **`decode_aircraft_identification()`**: Extracts 8-char AIS-6 callsign from ADS-B TC 1-4 messages. `src/modes/parser.rs`
+
+### Changed
+- Test count: 233 → 237
+
 ## [0.10.0] - 2026-05-28
 
 ### Added

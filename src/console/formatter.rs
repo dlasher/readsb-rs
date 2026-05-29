@@ -114,7 +114,7 @@ fn format_msg_fields(msg: &ModesMessage) -> Vec<String> {
         fields.push(format!("gs:{:.1}", msg.gs));
     }
     if msg.track_valid {
-        fields.push(format!("trk:{:.1}", (msg.cf as f32) * 90.0));
+        fields.push(format!("trk:{:.1}", msg.track));
     }
     if msg.baro_rate_valid {
         fields.push(format!("rate:{}", msg.baro_rate));
@@ -129,7 +129,7 @@ fn format_msg_fields(msg: &ModesMessage) -> Vec<String> {
         fields.push(if msg.cpr_odd { "cpr:odd".into() } else { "cpr:even".into() });
     }
     if msg.squawk_valid {
-        fields.push(format!("squawk:{:04o}", msg.squawk_hex));
+        fields.push(format!("squawk:{:04x}", msg.squawk_hex));
     }
     if msg.nav.mcp_altitude_valid {
         fields.push(format!("sel_alt:{}", msg.nav.mcp_altitude));

@@ -138,7 +138,7 @@ pub fn snapshot_from_message(msg: &ModesMessage) -> AircraftSnapshot {
         baro_alt: if msg.baro_alt_valid { Some(msg.baro_alt) } else { None },
         geom_alt: if msg.geom_alt_valid { Some(msg.geom_alt) } else { None },
         gs: if msg.gs_valid { Some(msg.gs) } else { None },
-        track: if msg.track_valid { Some((msg.cf as f32) * 90.0) } else { None },
+        track: if msg.track_valid { Some(msg.track) } else { None },
         baro_rate: if msg.baro_rate_valid { Some(msg.baro_rate) } else { None },
         callsign: callsign_str,
         lat: if msg.cpr_decoded { Some(msg.decoded_lat) } else { None },

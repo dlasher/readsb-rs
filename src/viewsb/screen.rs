@@ -29,7 +29,7 @@ impl TerminalGuard {
     }
 
     pub fn write_line(&mut self, line: &str) -> io::Result<()> {
-        writeln!(self.stdout, "{}", line)
+        write!(self.stdout, "{}\r\n", line)
     }
 
     pub fn should_exit(&self) -> io::Result<bool> {
