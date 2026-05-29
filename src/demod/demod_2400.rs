@@ -235,6 +235,28 @@ pub fn score_modes_message(msg: &[u8], msgbits: usize) -> i32 {
         return 100;
     }
 
+    // DF17 type correction: try to fix single-bit errors in the DF type field
+    // DF17 = 10001 binary. Single-bit errors produce: 00001(1), 11001(25), 10101(21), 10011(19), 10000(16)
+    if matches!(df, 1 | 25 | 21 | 19 | 16) {
+        let icao = ((msg[1] as u32) << 16) | ((msg[2] as u32) << 8) | (msg[3] as u32);
+        let known = crate::demod::icao_filter::icao_filter_test(icao);
+        // Try DF17: keep last 3 bits (CA), set first 5 bits to 17
+        let mut candidate = msg.to_vec();
+        candidate[0] = (17 << 3) | (msg[0] & 0x07);
+        let candidate_syndrome = modes_checksum(&candidate, msgbits);
+        if candidate_syndrome == 0 {
+            return if known { 1800 } else { 1400 };
+        }
+        if let Some(info) = engine.diagnose(candidate_syndrome) {
+            match info.errors {
+                1 => return if known { 900 } else { 700 },
+                2 => return if known { 450 } else { 350 },
+                _ => return 100,
+            }
+        }
+        return 100;
+    }
+
     if df == 19 || df == 24 {
         if syndrome == 0 {
             return 1000;

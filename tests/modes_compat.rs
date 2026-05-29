@@ -1,5 +1,6 @@
 use readsb::crc::{modes_checksum, CrcFixEngine};
 use readsb::modes::parse_modes_message;
+use readsb::types::INVALID_ALTITUDE;
 
 #[test]
 fn test_parse_df17_position() {
@@ -218,9 +219,9 @@ fn test_df5_squawk_decodes_icao_and_squawk() {
 
     // Squawk must be decoded
     assert!(result.message.squawk_valid, "Squawk should be valid");
-    // ID=0x1000 → decode: (0x1000 & 0x1F00)<<1 = 0x2000
-    assert_eq!(result.message.squawk_hex, 0x2000,
-        "Squawk should be 0x2000, got 0x{:04X}",
+    // ID=0x1000 → decode_id13: bit 12 (C1) → 0x0010
+    assert_eq!(result.message.squawk_hex, 0x0010,
+        "Squawk should be 0x0010, got 0x{:04X}",
         result.message.squawk_hex);
 
     // The ICAO must be extracted from the CRC parity
@@ -252,6 +253,167 @@ fn test_tc28_aircraft_status_decodes_squawk() {
     assert!(result.crc_ok);
     assert!(result.message.squawk_valid, "TC=28 mesub=1 should have squawk");
     assert_eq!(result.message.squawk_hex, 0x0010, "Squawk should be 0x0010");
+}
+
+#[test]
+fn test_movement_v0_matches_c_reference() {
+    use readsb::modes::decode_movement_v0;
+    let test_cases = [
+        (0, 0.0), (1, 0.0), (2, 0.1875), (3, 0.3125), (8, 0.9375),
+        (9, 1.125), (10, 1.375), (12, 1.875),
+        (13, 2.25), (14, 2.75), (38, 14.75),
+        (39, 15.5), (40, 16.5), (93, 69.5),
+        (94, 71.0), (95, 73.0), (108, 99.0),
+        (109, 102.5), (110, 107.5), (123, 172.5),
+        (124, 180.0), (125, 0.0), (126, 0.0), (127, 0.0),
+    ];
+    for (movement, expected) in &test_cases {
+        let result = decode_movement_v0(*movement);
+        assert!((result - expected).abs() < 0.001,
+            "V0 movement {}: expected {:.4}, got {:.4}", movement, expected, result);
+    }
+}
+
+#[test]
+fn test_movement_v2_matches_c_reference() {
+    use readsb::modes::decode_movement_v2;
+    let test_cases = [
+        (0, 0.0), (1, 0.0), (2, 0.0625), (3, 0.1979), (8, 0.9271),
+        (9, 1.125), (124, 180.0), (125, 0.0),
+    ];
+    for (movement, expected) in &test_cases {
+        let result = decode_movement_v2(*movement);
+        assert!((result - expected).abs() < 0.001,
+            "V2 movement {}: expected {:.4}, got {:.4}", movement, expected, result);
+    }
+}
+
+#[test]
+fn test_decode_altitude_gillham_mode_c() {
+    // Build a DF17 Airborne Position with Q-bit=0 (Gillham Mode C altitude)
+    // alt_raw = 0x378 with Q=0 → Gillham Mode C
+    // We need to construct a message where the altitude field has Q-bit=0
+    // but still represents a valid altitude.
+    // alt_raw bits: M(bit6)=0, Q(bit4)=0, remaining bits form Gillham code
+    // For a valid Gillham altitude, we need the right bit pattern.
+    // Let's use a known value: alt_raw = 0x378 → M=0, Q=1 → 10000ft (existing test)
+    // For Q=0 test, use alt_raw where Q=0 but Gillham decodes to a valid altitude
+    // alt_raw = 0x0020 → M=0, Q=0, remaining bits = 0x002 → decode_id13(0x0020) = 0x0001
+    // mode_a_to_mode_c(0x0001) → valid altitude
+    let mut msg = [0u8; 14];
+    msg[0] = 0x8D;
+    msg[1..4].copy_from_slice(&[0x48, 0x40, 0xD6]);
+    msg[4] = 0x58; // ME[0]: TC=11
+    // alt_raw = (me[1] << 4) | (me[2] >> 4) = 0x0020
+    // M=0, Q=0, Gillham bits = 0x002
+    msg[5] = 0x00; // me[1]: altitude bits 11-4 = 0x00
+    msg[6] = 0x22; // me[2]: altitude[3:0]=2<<4, F=0, CPR_lat[16:15]=2
+    msg[7] = 0x75; msg[8] = 0x30; msg[9] = 0x24; msg[10] = 0xD8;
+    let pi = modes_checksum(&msg, 112);
+    msg[11] = (pi >> 16) as u8;
+    msg[12] = (pi >> 8) as u8;
+    msg[13] = pi as u8;
+    assert_eq!(modes_checksum(&msg, 112), 0);
+    let engine = CrcFixEngine::new(112);
+    let result = parse_modes_message(&msg, 112, &engine, 0.0).unwrap();
+    assert!(result.crc_ok);
+    // The altitude should be valid even with Q=0 (Gillham Mode C)
+    assert!(result.message.baro_alt_valid,
+        "Altitude should be valid even with Q=0 (Gillham Mode C)");
+    assert_ne!(result.message.baro_alt, INVALID_ALTITUDE,
+        "Altitude should not be INVALID_ALTITUDE for Gillham Mode C");
+}
+
+#[test]
+fn test_mode_a_to_mode_c_known_values() {
+    use readsb::modes::mode_a_to_mode_c;
+    // These test values come from the Gillham code table:
+    // C1=1 → 1000ft (0x0010 in hex Gillham)
+    let result = mode_a_to_mode_c(0x0010);
+    assert!(result != INVALID_ALTITUDE, "0x0010 should decode to valid altitude");
+}
+
+#[test]
+fn test_airborne_velocity_subtype_3_heading_and_ias() {
+    // DF17 Airborne Velocity (metype=19, mesub=3) with heading + IAS
+    // Subtype 3: heading (1kt resolution) + IAS
+    let mut msg = [0u8; 14];
+    msg[0] = 0x8D; msg[1..4].copy_from_slice(&[0x48, 0x40, 0xD6]);
+    msg[4] = 0x9B; // metype=19, mesub=3
+    // Heading: bits 15-24 = 0x100 (256/1024 * 360 = 90°)
+    // me[1] b2 = heading status (1=valid), me[1] b1,b0 + me[2] = heading raw
+    // heading raw = 256 = 0x100 → me[1] b1,b0 = 01, me[2] = 0x00
+    // But wait: bits 15-24 are 10 bits. me[1] b2=hdg_status, me[1] b1,b0 + me[2] = 8 bits
+    // Actually: bit 14 = hdg_status, bits 15-24 = heading (10 bits)
+    // me[1] bit 2 = hdg_status, me[1] bits 1-0 + me[2] = top 2 + all 8 = 10 bits
+    // hdg=256 → 0x100 → me[1] b1,b0 = 01, me[2] = 0x00
+    msg[5] = 0x05; // me[1]: hdg_status=1 (b2), hdg top 2 bits = 01 (b1,b0)
+    msg[6] = 0x00; // me[2]: hdg bottom 8 bits = 0x00
+    // IAS: bits 26-35 = 10 bits. me[3] b7 = IAS/TAS type (0=IAS), me[3] b6..b0 + me[4] b7..b5
+    // IAS raw = 251 → (251-1)*1 = 250kt
+    // 251 = 0x0FB → top 7 bits = 0x1F, bottom 3 bits = 3
+    // me[3] b7=0 (IAS), me[3] b6..b0 = 0x1F, me[4] b7..b5 = 3
+    msg[7] = 0x1F; // me[3]: IAS type=0 (b7), IAS top 7 bits = 0x1F
+    msg[8] = 0x60; // me[4]: IAS bottom 3 bits (3) at b7..b5
+    msg[9] = 0; msg[10] = 0;
+    let pi = modes_checksum(&msg, 112);
+    msg[11] = (pi >> 16) as u8; msg[12] = (pi >> 8) as u8; msg[13] = pi as u8;
+    assert_eq!(modes_checksum(&msg, 112), 0);
+    let engine = CrcFixEngine::new(112);
+    let result = parse_modes_message(&msg, 112, &engine, 0.0).unwrap();
+    assert!(result.crc_ok);
+    assert!(result.message.ias_valid, "IAS should be valid for subtype 3");
+    assert_eq!(result.message.ias, 250, "IAS should be 250kt");
+    assert!(result.message.track_valid, "Heading should be valid");
+    assert!((result.message.track - 90.0).abs() < 1.0,
+        "Heading should be ~90°, got {}", result.message.track);
+}
+
+#[test]
+fn test_airborne_velocity_subtype_4_tas() {
+    // DF17 Airborne Velocity (metype=19, mesub=4) with TAS (4kt resolution)
+    let mut msg = [0u8; 14];
+    msg[0] = 0x8D; msg[1..4].copy_from_slice(&[0x48, 0x40, 0xD6]);
+    msg[4] = 0x9C; // metype=19, mesub=4
+    // Heading: 0x100 = 90°
+    msg[5] = 0x04; msg[6] = 0x00;
+    // TAS: bit 25 = type (1=TAS), bits 26-35 = speed raw
+    // TAS raw = 116 → (116-1)*4 = 460kt
+    // 116 = 0x074 → top 7 bits = 0x0E, bottom 3 bits = 4
+    // me[3] b7=1 (TAS), me[3] b6..b0 = 0x0E, me[4] b7..b5 = 4
+    msg[7] = 0x8E; // me[3]: TAS type=1 (b7), TAS top 7 bits = 0x0E
+    msg[8] = 0x80; // me[4]: TAS bottom 3 bits (4) at b7..b5
+    msg[9] = 0; msg[10] = 0;
+    let pi = modes_checksum(&msg, 112);
+    msg[11] = (pi >> 16) as u8; msg[12] = (pi >> 8) as u8; msg[13] = pi as u8;
+    assert_eq!(modes_checksum(&msg, 112), 0);
+    let engine = CrcFixEngine::new(112);
+    let result = parse_modes_message(&msg, 112, &engine, 0.0).unwrap();
+    assert!(result.crc_ok);
+    assert!(result.message.tas_valid, "TAS should be valid for subtype 4");
+    assert_eq!(result.message.tas, 460, "TAS should be 460kt");
+}
+
+#[test]
+fn test_airborne_velocity_nacv() {
+    // DF17 Airborne Velocity with NACv
+    let mut msg = [0u8; 14];
+    msg[0] = 0x8D; msg[1..4].copy_from_slice(&[0x48, 0x40, 0xD6]);
+    msg[4] = 0x9B; // metype=19, mesub=3
+    // NACv: bits 11-13 = 3 bits, in me[1] bits 5-3 (from LSB)
+    // NACv=4 → 0b100 → me[1] b5=1, b4=0, b3=0
+    // me[1] = 0b0010_0000 = 0x20
+    msg[5] = 0x20; // me[1]: b5=1 (NACv top bit)
+    msg[6] = 0x00; msg[7] = 0x00; msg[8] = 0x00;
+    msg[9] = 0; msg[10] = 0;
+    let pi = modes_checksum(&msg, 112);
+    msg[11] = (pi >> 16) as u8; msg[12] = (pi >> 8) as u8; msg[13] = pi as u8;
+    assert_eq!(modes_checksum(&msg, 112), 0);
+    let engine = CrcFixEngine::new(112);
+    let result = parse_modes_message(&msg, 112, &engine, 0.0).unwrap();
+    assert!(result.crc_ok);
+    assert_eq!(result.message.accuracy.nac_v, 4, "NACv should be 4");
+    assert!(result.message.accuracy.nac_v_valid, "NACv should be valid");
 }
 
 fn hex_to_bytes(hex: &str) -> Option<Vec<u8>> {

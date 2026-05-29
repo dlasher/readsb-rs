@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.11.1] - 2026-05-29
+
+### Fixed
+- **Squawk (identity) decoding used wrong formula**: `decode_df5_21()` used an incorrect bit-shift formula instead of the Gillham hex encoder `decode_id13()`. All DF5/DF21 squawk values were decoded incorrectly (0/1000 random test values matched the C reference). `src/modes/parser.rs`
+- **Ground speed (movement) decoding used flat identity table**: `MOVEMENT_TABLE` was `[0.0, 1.0, ..., 124.0]` instead of the proper ADS-B piecewise-linear exponential scale (`decodeMovementFieldV0`/`V2`). All surface movement ground speeds were wrong (e.g. code 124 = 180 kt, not 124 kt). `src/modes/parser.rs`
+- **CPR global decode hardcoded fflag=0**: Always passed even-frame flag to `decode_cpr_airborne()` instead of the current message's `cpr_odd` flag. Odd-frame position pairs produced incorrect positions. `src/tracking/tracker.rs`
+- **CRC error correction included DF type bits**: Syndrome table construction started at bit 0 instead of bit 5, causing the CRC fixer to attempt corrections in the DF type field (handled separately via `fixDF17msgtype()` in the C reference). `src/crc/fix.rs`
+- **Altitude decoding dropped Gillham Mode C (Q-bit=0)**: When the Q-bit was 0, altitude returned `INVALID_ALTITUDE` instead of performing Gillham Mode C decoding via `decode_id13()` → `mode_a_to_mode_c()`. Many older transponders use Gillham encoding. `src/modes/parser.rs`
+- **Airborne velocity missing subtypes 3-4**: Decoder only handled subtypes 1-2 (EW/NS velocity components). Subtypes 3-4 provide heading + airspeed (IAS/TAS). Now extracts heading, IAS, TAS, NACv, and baro/geo delta. `src/modes/parser.rs`
+- **DF17 type correction not implemented**: `fixDF17msgtype()` from the C reference was missing — messages with single-bit errors in the DF type field (DF=1,25,21,19,16 that could actually be DF17) were discarded instead of repaired. `src/demod/demod_2400.rs`
+- **CA field never used for air/ground determination**: The CA (Capability) field was read but never mapped to air/ground state (CA=4 → Ground, CA=5 → Airborne). Only sets airground when currently `Invalid` to avoid overriding surface position determination. `src/modes/parser.rs`
+
 ## [0.11.0] - 2026-05-29
 
 ### Fixed

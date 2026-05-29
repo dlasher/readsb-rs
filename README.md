@@ -29,7 +29,7 @@ This is an **active rewrite in progress** covering the full demodulation, decodi
 | viewsb interactive table | ✅ Complete | 24 |
 | Docker + CI | ✅ Complete | — |
 
-**Total: 237 tests, all passing**
+**Total: 244 tests, all passing**
 
 ## Tools
 

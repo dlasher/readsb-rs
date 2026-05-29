@@ -130,7 +130,8 @@ impl Tracker {
         {
             if let Some((lat, lon)) = decode_cpr_airborne(
                 a.cpr_even_lat as i32, a.cpr_even_lon as i32,
-                a.cpr_odd_lat as i32, a.cpr_odd_lon as i32, 0,
+                a.cpr_odd_lat as i32, a.cpr_odd_lon as i32,
+                if msg.cpr_odd { 1 } else { 0 },
             ) {
                 if lat.abs() <= 90.0 && lon.abs() <= 180.0 {
                     a.lat = lat;

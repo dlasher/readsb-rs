@@ -26,8 +26,8 @@ impl CrcFixEngine {
         let mut table = HashMap::new();
         let nbytes = max_bitlen.div_ceil(8);
 
-        // Single bit errors
-        for bit_pos in 0..max_bitlen {
+        // Single bit errors — skip bits 0-4 (DF type field)
+        for bit_pos in 5..max_bitlen {
             let mut error_msg = vec![0u8; nbytes];
             let byte_idx = bit_pos / 8;
             let bit_idx = 7 - (bit_pos % 8);
@@ -44,8 +44,8 @@ impl CrcFixEngine {
             );
         }
 
-        // Double bit errors (only where no single-bit error already maps to the syndrome)
-        for bit1 in 0..max_bitlen {
+        // Double bit errors — skip bits 0-4 (DF type field)
+        for bit1 in 5..max_bitlen {
             for bit2 in (bit1 + 1)..max_bitlen {
                 let mut error_msg = vec![0u8; nbytes];
                 let byte1 = bit1 / 8;

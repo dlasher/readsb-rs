@@ -64,6 +64,15 @@ pub fn parse_modes_message(msg: &[u8], msgbits: usize, crc_engine: &CrcFixEngine
 fn extract_common_fields(mm: &mut ModesMessage) {
     mm.cf = ((mm.msg[0] & 0xE0) >> 5) as u32;
     mm.ca = (mm.msg[0] & 0x07) as u32;
+    // Set air/ground from CA field only if not already determined
+    // (surface position uses CPR_AIRBORNE bit, don't override it)
+    if mm.airground == AirGround::Invalid {
+        match mm.ca {
+            4 => mm.airground = AirGround::Ground,
+            5 => mm.airground = AirGround::Airborne,
+            _ => {}
+        }
+    }
     if mm.msgtype == 11 || mm.msgtype == 17 || mm.msgtype == 18 {
         mm.aa = ((mm.msg[1] as u32) << 16) | ((mm.msg[2] as u32) << 8) | (mm.msg[3] as u32);
         mm.addr = mm.aa;
@@ -80,7 +89,7 @@ fn decode_df0_4_16(mm: &mut ModesMessage) {
 
 fn decode_df5_21(mm: &mut ModesMessage) {
     let id = ((mm.msg[2] as u32 & 0x1F) << 8) | (mm.msg[3] as u32);
-    mm.squawk_hex = ((id & 0x1F00) << 1) | ((id & 0x003F) << 2) | ((id & 0x00C0) >> 6);
+    mm.squawk_hex = decode_id13(id);
     mm.squawk_valid = true;
 }
 
@@ -128,11 +137,19 @@ fn decode_df24(_mm: &mut ModesMessage) {}
 fn decode_df31(mm: &mut ModesMessage) { mm.mv.copy_from_slice(&mm.msg[4..11]); }
 
 pub fn decode_altitude(ac: u32) -> i32 {
-    if ac & 0x0040 != 0 {
+    if ac & 0x0040 != 0 { return INVALID_ALTITUDE; } // M-bit = meters (unimplemented)
+    if ac & 0x0010 != 0 {
+        // Q-bit set: 25ft encoding
         let n = ((ac & 0x003F) << 1) | ((ac & 0x0FC0) >> 6);
         if n == 0 { return INVALID_ALTITUDE; }
         ((n as i32) - 10) * 100
-    } else { INVALID_ALTITUDE }
+    } else {
+        // Q-bit clear: Gillham Mode C encoding
+        let gillham = decode_id13(ac);
+        let alt_100ft = crate::modes::mode_ac::mode_a_to_mode_c(gillham);
+        if alt_100ft == INVALID_ALTITUDE { return INVALID_ALTITUDE; }
+        alt_100ft
+    }
 }
 
 fn decode_surface_position(mm: &mut ModesMessage) {
@@ -141,7 +158,7 @@ fn decode_surface_position(mm: &mut ModesMessage) {
     mm.cpr_lon = ((mm.me[3] as u32 & 0x01) << 16) | ((mm.me[4] as u32) << 8) | (mm.me[5] as u32);
     mm.cpr_odd = (mm.me[0] & 0x04) != 0; mm.cpr_valid = true; mm.cpr_decoded = true;
     let mvm = mm.me[6] >> 2;
-    if mvm > 0 && mvm < 125 { mm.gs = MOVEMENT_TABLE[mvm as usize]; mm.gs_valid = true; }
+    if mvm > 0 && mvm < 125 { mm.gs = decode_movement_v0(mvm as u32); mm.gs_valid = true; }
     mm.airground = if mm.me[6] & 0x01 != 0 { AirGround::Ground } else { AirGround::Airborne };
 }
 
@@ -175,49 +192,101 @@ fn decode_airborne_position(mm: &mut ModesMessage) {
     // Bit 22 = F flag (me[2] bit 2)
     mm.cpr_odd = (mm.me[2] & 0x04) != 0; mm.cpr_valid = true; mm.cpr_decoded = true;
     // Bits 9-20 = 12-bit altitude field (me[1] bits 7-0, me[2] bits 7-4)
+    // This is a 12-bit AC field (no M-bit). Q-bit at bit 4 selects encoding:
+    // Q=1 → 25ft encoding, Q=0 → Gillham Mode C
     let alt_raw = ((mm.me[1] as u16) << 4) | ((mm.me[2] as u16) >> 4);
-    if alt_raw > 0 && alt_raw & 0x10 != 0 {
-        // Q-bit set: 25ft encoding
-        let n = (((alt_raw & 0x0FE0) >> 1) | (alt_raw & 0x000F)) as i32;
-        let alt = n * 25 - 1000;
-        if mm.metype >= 20 && mm.metype <= 22 {
-            mm.geom_alt = alt; mm.geom_alt_valid = true; mm.geom_alt_unit = AltitudeUnit::Feet;
+    if alt_raw > 0 {
+        if alt_raw & 0x0010 != 0 {
+            // Q-bit set: 25ft encoding
+            let n = (((alt_raw & 0x0FE0) >> 1) | (alt_raw & 0x000F)) as i32;
+            let alt = n * 25 - 1000;
+            if mm.metype >= 20 && mm.metype <= 22 {
+                mm.geom_alt = alt; mm.geom_alt_valid = true; mm.geom_alt_unit = AltitudeUnit::Feet;
+            } else {
+                mm.baro_alt = alt; mm.baro_alt_valid = true; mm.baro_alt_unit = AltitudeUnit::Feet;
+            }
         } else {
-            mm.baro_alt = alt; mm.baro_alt_valid = true; mm.baro_alt_unit = AltitudeUnit::Feet;
+            // Q-bit clear: Gillham Mode C encoding
+            // Insert M=0 at bit 6 to create a 13-bit Gillham value (matching AC12Field in C ref)
+            let ac13 = ((alt_raw as u32 & 0x0FC0) << 1) | (alt_raw as u32 & 0x003F);
+            let gillham = decode_id13(ac13);
+            let alt = crate::modes::mode_ac::mode_a_to_mode_c(gillham);
+            if alt != INVALID_ALTITUDE {
+                if mm.metype >= 20 && mm.metype <= 22 {
+                    mm.geom_alt = alt; mm.geom_alt_valid = true; mm.geom_alt_unit = AltitudeUnit::Feet;
+                } else {
+                    mm.baro_alt = alt; mm.baro_alt_valid = true; mm.baro_alt_unit = AltitudeUnit::Feet;
+                }
+            }
         }
     }
 }
 
 fn decode_airborne_velocity(mm: &mut ModesMessage) {
-    if mm.mesub == 1 || mm.mesub == 2 {
-        // EW velocity: C bits 15-24 (MSB-first) = me[1] b1,b0 + me[2] b7..b0
-        let ew_raw = ((mm.me[1] as u32 & 0x03) << 8) | (mm.me[2] as u32);
-        // NS velocity: C bits 26-35 = me[3] b6..b0 + me[4] b7..b5
-        let ns_raw = ((mm.me[3] as u32 & 0x7F) << 3) | ((mm.me[4] as u32) >> 5);
-        // EW direction: C bit 14 = me[1] b2 (1=East, 0=West)
-        let ew_sign = (mm.me[1] & 0x04) != 0;
-        // NS direction: C bit 25 = me[3] b7 (1=South, 0=North)
-        let ns_sign = (mm.me[3] & 0x80) != 0;
-        if ew_raw > 0 && ns_raw > 0 {
-            let ew_vel = (ew_raw - 1) as f32;
-            let ns_vel = (ns_raw - 1) as f32;
-            let mult = if mm.mesub == 1 { 1.0 } else { 4.0 };
-            let ew = if ew_sign { -(ew_vel * mult) } else { ew_vel * mult };
-            let ns = if ns_sign { -(ns_vel * mult) } else { ns_vel * mult };
-            mm.gs = (ew * ew + ns * ns).sqrt(); mm.gs_valid = true;
-            mm.track = ew.atan2(ns).to_degrees();
-            if mm.track < 0.0 { mm.track += 360.0; }
-            mm.track_valid = true;
+    // NACv: bits 11-13 = me[1] bits 5-3 (from LSB)
+    let nac_v = (mm.me[1] as u32 >> 3) & 0x07;
+    mm.accuracy.nac_v = nac_v;
+    mm.accuracy.nac_v_valid = true;
+
+    match mm.mesub {
+        1 | 2 => {
+            // EW velocity: C bits 15-24 (MSB-first) = me[1] b1,b0 + me[2] b7..b0
+            let ew_raw = ((mm.me[1] as u32 & 0x03) << 8) | (mm.me[2] as u32);
+            // NS velocity: C bits 26-35 = me[3] b6..b0 + me[4] b7..b5
+            let ns_raw = ((mm.me[3] as u32 & 0x7F) << 3) | ((mm.me[4] as u32) >> 5);
+            // EW direction: C bit 14 = me[1] b2 (1=East, 0=West)
+            let ew_sign = (mm.me[1] & 0x04) != 0;
+            // NS direction: C bit 25 = me[3] b7 (1=South, 0=North)
+            let ns_sign = (mm.me[3] & 0x80) != 0;
+            if ew_raw > 0 && ns_raw > 0 {
+                let ew_vel = (ew_raw - 1) as f32;
+                let ns_vel = (ns_raw - 1) as f32;
+                let mult = if mm.mesub == 1 { 1.0 } else { 4.0 };
+                let ew = if ew_sign { -(ew_vel * mult) } else { ew_vel * mult };
+                let ns = if ns_sign { -(ns_vel * mult) } else { ns_vel * mult };
+                mm.gs = (ew * ew + ns * ns).sqrt(); mm.gs_valid = true;
+                mm.track = ew.atan2(ns).to_degrees();
+                if mm.track < 0.0 { mm.track += 360.0; }
+                mm.track_valid = true;
+            }
         }
-        // Vertical rate: C bits 37-46 = me[4] b6..b3 + me[5] b7..b2
-        let vr_raw = (((mm.me[4] as u32 >> 3) & 0x0F) << 6) | ((mm.me[5] as u32 >> 2) & 0x3F);
-        // VR direction: C bit 36 = me[4] b7 (1=down, 0=up)
-        let vr_sign = (mm.me[4] & 0x80) != 0;
-        if vr_raw > 0 {
-            let vr = vr_raw - 1;
-            mm.geom_rate = if vr_sign { -(vr as i32 * 64) } else { vr as i32 * 64 };
-            mm.geom_rate_valid = true;
+        3 | 4 => {
+            // Heading: bit 14 = status, bits 15-24 = heading (0-1023 → 0-360°)
+            if (mm.me[1] & 0x04) != 0 {
+                let hdg_raw = ((mm.me[1] as u32 & 0x03) << 8) | (mm.me[2] as u32);
+                mm.track = hdg_raw as f32 * 360.0 / 1024.0;
+                mm.track_valid = true;
+            }
+            // Airspeed: bit 25 = type (1=TAS, 0=IAS), bits 26-35 = speed
+            let speed_raw = ((mm.me[3] as u32 & 0x7F) << 3) | ((mm.me[4] as u32) >> 5);
+            if speed_raw > 0 {
+                let speed = (speed_raw - 1) * if mm.mesub == 4 { 4 } else { 1 };
+                if (mm.me[3] & 0x80) != 0 {
+                    mm.tas = speed; mm.tas_valid = true;
+                } else {
+                    mm.ias = speed; mm.ias_valid = true;
+                }
+            }
         }
+        _ => return,
+    }
+
+    // Vertical rate (common to all subtypes 1-4)
+    let vr_raw = (((mm.me[4] as u32 >> 3) & 0x0F) << 6) | ((mm.me[5] as u32 >> 2) & 0x3F);
+    let vr_sign = (mm.me[4] & 0x80) != 0;
+    if vr_raw > 0 {
+        let vr = (vr_raw - 1) as i32 * 64;
+        mm.geom_rate = if vr_sign { -vr } else { vr };
+        mm.geom_rate_valid = true;
+    }
+
+    // Geom/baro delta: bits 49-56 (7 bits, ±25ft resolution)
+    // me[5] b1,b0 + me[6] b7..b3 = 7 bits
+    let delta_raw = ((mm.me[5] as u32 & 0x03) << 5) | ((mm.me[6] as u32) >> 3);
+    if delta_raw > 0 {
+        let delta_sign = (mm.me[5] & 0x04) != 0;
+        let delta = (delta_raw - 1) as i32 * 25;
+        mm.geom_delta = if delta_sign { -delta } else { delta };
     }
 }
 
@@ -271,19 +340,33 @@ fn decode_aircraft_status(mm: &mut ModesMessage) {
     }
 }
 
-#[rustfmt::skip]
-const MOVEMENT_TABLE: [f32; 125] = [
-    0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0,
-    10.0, 11.0, 12.0, 13.0, 14.0, 15.0, 16.0, 17.0, 18.0, 19.0,
-    20.0, 21.0, 22.0, 23.0, 24.0, 25.0, 26.0, 27.0, 28.0, 29.0,
-    30.0, 31.0, 32.0, 33.0, 34.0, 35.0, 36.0, 37.0, 38.0, 39.0,
-    40.0, 41.0, 42.0, 43.0, 44.0, 45.0, 46.0, 47.0, 48.0, 49.0,
-    50.0, 51.0, 52.0, 53.0, 54.0, 55.0, 56.0, 57.0, 58.0, 59.0,
-    60.0, 61.0, 62.0, 63.0, 64.0, 65.0, 66.0, 67.0, 68.0, 69.0,
-    70.0, 71.0, 72.0, 73.0, 74.0, 75.0, 76.0, 77.0, 78.0, 79.0,
-    80.0, 81.0, 82.0, 83.0, 84.0, 85.0, 86.0, 87.0, 88.0, 89.0,
-    90.0, 91.0, 92.0, 93.0, 94.0, 95.0, 96.0, 97.0, 98.0, 99.0,
-    100.0, 101.0, 102.0, 103.0, 104.0, 105.0, 106.0, 107.0, 108.0, 109.0,
-    110.0, 111.0, 112.0, 113.0, 114.0, 115.0, 116.0, 117.0, 118.0, 119.0,
-    120.0, 121.0, 122.0, 123.0, 124.0,
-];
+/// Decode ADS-B movement field (subtype 0, surface position).
+/// Returns midpoint of the speed range for each movement code.
+/// Matches decodeMovementFieldV0() in readsb's mode_s.c.
+pub fn decode_movement_v0(movement: u32) -> f32 {
+    if movement >= 125 { return 0.0; }
+    if movement == 124 { return 180.0; }
+    if movement >= 109 { return 100.0 + ((movement - 109) as f32 + 0.5) * 5.0; }
+    if movement >= 94  { return 70.0 + ((movement - 94) as f32 + 0.5) * 2.0; }
+    if movement >= 39  { return 15.0 + ((movement - 39) as f32 + 0.5) * 1.0; }
+    if movement >= 13  { return 2.0 + ((movement - 13) as f32 + 0.5) * 0.50; }
+    if movement >= 9   { return 1.0 + ((movement - 9) as f32 + 0.5) * 0.25; }
+    if movement >= 2   { return 0.125 + ((movement - 2) as f32 + 0.5) * 0.125; }
+    0.0
+}
+
+/// Decode ADS-B movement field (subtype 2, surface position).
+/// Finer granularity at low speeds than V0.
+/// Matches decodeMovementFieldV2() in readsb's mode_s.c.
+pub fn decode_movement_v2(movement: u32) -> f32 {
+    if movement >= 125 { return 0.0; }
+    if movement == 124 { return 180.0; }
+    if movement >= 109 { return 100.0 + ((movement - 109) as f32 + 0.5) * 5.0; }
+    if movement >= 94  { return 70.0 + ((movement - 94) as f32 + 0.5) * 2.0; }
+    if movement >= 39  { return 15.0 + ((movement - 39) as f32 + 0.5) * 1.0; }
+    if movement >= 13  { return 2.0 + ((movement - 13) as f32 + 0.5) * 0.50; }
+    if movement >= 9   { return 1.0 + ((movement - 9) as f32 + 0.5) * 0.25; }
+    if movement >= 3   { return 0.125 + ((movement - 3) as f32 + 0.5) * 0.875 / 6.0; }
+    if movement >= 2   { return 0.125 / 2.0; }
+    0.0
+}
